@@ -792,28 +792,47 @@
 <script>
 const ADMIN_PASSWORD = 'wc2026';
 
-// ── Storage: JSONBin.io free cloud sync ──
-// Each visitor reads/writes the same shared bin.
-// To set up: create a free account at jsonbin.io, create a bin with {}
-// then paste your Bin ID and API key below.
-const JSONBIN_BIN_ID   = '6a2a7b6cda38895dfeac2cf4';
-const JSONBIN_API_KEY  = '$2a$10$zOeArJp.0KHDPuz2SewQzeXMRpdFS5TbD0YG3Sz7QU7E3VACGK9a6';
-const JSONBIN_URL      = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
+// ── Storage: Supabase sync ──
+// Setup: supabase.com → new project → SQL editor → run the setup SQL below
+// then paste your Project URL and anon key.
+//
+// SQL to run once in Supabase SQL editor:
+//   create table wc2026 (
+//     id text primary key,
+//     data jsonb not null
+//   );
+//   insert into wc2026 (id, data) values ('state', '{"groups":{},"knockout":[],"predictions":[]}');
+//   alter table wc2026 enable row level security;
+//   create policy "public read"  on wc2026 for select using (true);
+//   create policy "public write" on wc2026 for update using (true);
 
-let syncEnabled = JSONBIN_BIN_ID !== 'PASTE_YOUR_BIN_ID_HERE';
+const SUPABASE_URL     = 'https://yeoygxfdwqjrpqiqrgkz.supabase.co';
+const SUPABASE_ANON    = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inllb3lneGZkd3FqcnBxaXFyZ2t6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExNjYxNzUsImV4cCI6MjA5Njc0MjE3NX0.ydwDlzztpxN8v3gFPXCJTp2hoAICNRjFsUZ3Dyp9NOk';
+
+let syncEnabled  = SUPABASE_URL !== 'PASTE_YOUR_PROJECT_URL';
 let syncInFlight = false;
+
+function sbHeaders() {
+  return {
+    'Content-Type':  'application/json',
+    'apikey':        SUPABASE_ANON,
+    'Authorization': 'Bearer ' + SUPABASE_ANON,
+    'Prefer':        'return=representation'
+  };
+}
 
 async function cloudLoad() {
   if (!syncEnabled) return null;
   try {
-    const r = await fetch(JSONBIN_URL + '/latest', {
-      headers: { 'X-Master-Key': JSONBIN_API_KEY }
-    });
-    if (!r.ok) throw new Error('load failed');
-    const j = await r.json();
-    return j.record || null;
+    const r = await fetch(
+      SUPABASE_URL + '/rest/v1/wc2026?id=eq.state&select=data',
+      { headers: sbHeaders() }
+    );
+    if (!r.ok) throw new Error('load ' + r.status);
+    const rows = await r.json();
+    return rows?.[0]?.data ?? null;
   } catch(e) {
-    console.warn('Cloud load failed, using local cache', e);
+    console.warn('Cloud load failed:', e);
     return null;
   }
 }
@@ -823,15 +842,18 @@ async function cloudSave(data) {
   syncInFlight = true;
   setSyncStatus('saving');
   try {
-    const r = await fetch(JSONBIN_URL, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_API_KEY },
-      body: JSON.stringify(data)
-    });
-    if (!r.ok) throw new Error('save failed');
+    const r = await fetch(
+      SUPABASE_URL + '/rest/v1/wc2026?id=eq.state',
+      {
+        method:  'PATCH',
+        headers: sbHeaders(),
+        body:    JSON.stringify({ data })
+      }
+    );
+    if (!r.ok) throw new Error('save ' + r.status);
     setSyncStatus('saved');
   } catch(e) {
-    console.warn('Cloud save failed', e);
+    console.warn('Cloud save failed:', e);
     setSyncStatus('error');
   } finally {
     syncInFlight = false;
