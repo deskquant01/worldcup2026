@@ -1385,24 +1385,56 @@ function collectGroupPicks() {
   return groupPicks;
 }
 
+// Returns true if the current device is allowed to save under this name.
+// A prediction without a token is unclaimed (first saver claims it).
+function canEditPrediction(name) {
+  const existing = state.predictions.find(p => p.name === name);
+  if (!existing || !existing.token) return true;
+  return localStorage.getItem('wc2026_token_' + name) === existing.token;
+}
+
+// Returns the device token for this name, creating it if needed.
+function ownToken(name) {
+  let t = localStorage.getItem('wc2026_token_' + name);
+  if (!t) {
+    t = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    localStorage.setItem('wc2026_token_' + name, t);
+  }
+  return t;
+}
+
 function updateEditState() {
   const name = document.getElementById('pred-name')?.value.trim() || '';
-  const hasExisting = name && !!state.predictions.find(p => p.name === name);
-  const notice = document.getElementById('edit-notice');
-  const btn    = document.getElementById('save-pred-btn');
-  if (notice) notice.style.display = hasExisting ? 'block' : 'none';
-  if (btn)    btn.textContent = hasExisting ? 'Update prediction ⚽' : 'Save all predictions ⚽';
+  const existing = name ? state.predictions.find(p => p.name === name) : null;
+  const mine    = existing && canEditPrediction(name);
+  const taken   = existing && !canEditPrediction(name);
+  const notice  = document.getElementById('edit-notice');
+  const btn     = document.getElementById('save-pred-btn');
+  if (notice) {
+    notice.style.display = (mine || taken) ? 'block' : 'none';
+    notice.style.color   = taken ? 'var(--red-lose)' : 'var(--pitch)';
+    notice.style.background = taken ? 'var(--red-bg)' : 'rgba(0,90,50,.07)';
+    notice.style.borderColor = taken ? 'rgba(185,64,64,.2)' : 'rgba(0,90,50,.15)';
+    notice.innerHTML = taken
+      ? `⛔ &ldquo;${escHtml(name)}&rdquo; is already taken. Choose a different name, or ask the admin to remove it.`
+      : '✏️ Editing your existing prediction — save to update it.';
+  }
+  if (btn) btn.textContent = mine ? 'Update prediction ⚽' : 'Save all predictions ⚽';
+  if (btn) btn.disabled = taken;
 }
 
 function onNameBlur() {
   const name = document.getElementById('pred-name').value.trim();
-  if (!name) return;
+  if (!name) { updateEditState(); return; }
   const saved = state.predictions.find(p => p.name === name);
   if (saved) {
-    bracketSelectedTeam = null;
-    for(const r of ['r32','r16','qf','sf']) koSelections[r] = new Set();
-    fillPredictForm(saved);
-    showToast(`Loaded ${name}'s existing prediction`);
+    if (canEditPrediction(name)) {
+      bracketSelectedTeam = null;
+      for(const r of ['r32','r16','qf','sf']) koSelections[r] = new Set();
+      fillPredictForm(saved);
+      showToast(`Loaded your existing prediction`);
+    }
+    // if taken by another device, updateEditState() below will show the warning
   }
   updateEditState();
   renderMyPick();
@@ -1410,7 +1442,11 @@ function onNameBlur() {
 
 async function savePrediction() {
   const name = document.getElementById('pred-name').value.trim();
-  if(!name){ showToast('Please enter your name'); return; }
+  if (!name) { showToast('Please enter your name'); return; }
+  if (!canEditPrediction(name)) {
+    showToast(`⛔ "${name}" is already taken — choose a different name`);
+    return;
+  }
 
   const dark    = document.getElementById('pred-dark')?.value    || '';
   const scorer  = document.getElementById('pred-scorer').value.trim();
@@ -1423,11 +1459,12 @@ async function savePrediction() {
   const knockoutPicks = {};
   for(const r of ['r32','r16','qf','sf']) knockoutPicks[r] = [...koSelections[r]];
 
+  const token = ownToken(name);
   localStorage.setItem('wc2026_myname', name);
   await refreshFromCloud();
 
-  state.predictions = state.predictions.filter(p=>p.name!==name);
-  state.predictions.push({ name, champion, runner, third, dark, scorer, goals,
+  state.predictions = state.predictions.filter(p => p.name !== name);
+  state.predictions.push({ name, token, champion, runner, third, dark, scorer, goals,
     groupPicks, knockoutPicks, savedAt: Date.now() });
 
   recalcScores();
