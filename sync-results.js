@@ -62,11 +62,15 @@ const ROUND_ID = {
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────────
 async function apiFetch(path) {
-  const res = await fetch(`https://v3.football.api-sports.io${path}`, {
-    headers: { 'x-apisports-key': API_KEY },
-  });
+  const url = `https://v3.football.api-sports.io${path}`;
+  console.log(`  GET ${url}`);
+  const res = await fetch(url, { headers: { 'x-apisports-key': API_KEY } });
   if (!res.ok) throw new Error(`API error ${res.status} for ${path}`);
-  return res.json();
+  const data = await res.json();
+  // Show rate-limit headers if present
+  const remaining = res.headers.get('x-ratelimit-requests-remaining');
+  if (remaining !== null) console.log(`  Rate-limit remaining: ${remaining}`);
+  return data;
 }
 
 async function sbGet() {
@@ -102,9 +106,10 @@ async function main() {
   if (!state) { console.error('State row not found in Supabase'); process.exit(1); }
 
   // Fetch all finished fixtures for WC 2026 in one call
-  const { response: fixtures, errors } = await apiFetch(
-    `/fixtures?league=${LEAGUE_ID}&season=${SEASON}&status=FT-AET-PEN`
-  );
+  console.log(`Fetching fixtures: league=${LEAGUE_ID} season=${SEASON}`);
+  const raw = await apiFetch(`/fixtures?league=${LEAGUE_ID}&season=${SEASON}&status=FT-AET-PEN`);
+  console.log(`API response: results=${raw.results ?? '?'} errors=${JSON.stringify(raw.errors ?? [])}`);
+  const { response: fixtures, errors } = raw;
 
   if (errors?.length) { console.error('API errors:', errors); process.exit(1); }
   if (!fixtures?.length) { console.log('No finished fixtures yet'); return; }
