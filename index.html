@@ -138,6 +138,7 @@
   }
   .nav-tab:hover { color: var(--text); }
   .nav-tab.active { color: var(--pitch); border-bottom-color: var(--pitch); }
+  .sync-status { margin-left: auto; padding: 0 16px; font-size: 11px; color: var(--text-3); display: flex; align-items: center; white-space: nowrap; }
 
   /* ── Layout ── */
   .page { display: none; }
@@ -623,6 +624,7 @@
     <button class="nav-tab" onclick="showPage('predict',this)">My prediction</button>
     <button class="nav-tab" onclick="showPage('leaderboard',this)">Leaderboard</button>
     <button class="nav-tab" onclick="showPage('admin',this)">⚙ Admin</button>
+    <span class="sync-status" id="sync-status"></span>
   </div>
 </nav>
 
@@ -790,6 +792,61 @@
 <script>
 const ADMIN_PASSWORD = 'wc2026';
 
+// ── Storage: JSONBin.io free cloud sync ──
+// Each visitor reads/writes the same shared bin.
+// To set up: create a free account at jsonbin.io, create a bin with {}
+// then paste your Bin ID and API key below.
+const JSONBIN_BIN_ID   = '6a2a7b6cda38895dfeac2cf4';
+const JSONBIN_API_KEY  = '$2a$10$zOeArJp.0KHDPuz2SewQzeXMRpdFS5TbD0YG3Sz7QU7E3VACGK9a6';
+const JSONBIN_URL      = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
+
+let syncEnabled = JSONBIN_BIN_ID !== 'PASTE_YOUR_BIN_ID_HERE';
+let syncInFlight = false;
+
+async function cloudLoad() {
+  if (!syncEnabled) return null;
+  try {
+    const r = await fetch(JSONBIN_URL + '/latest', {
+      headers: { 'X-Master-Key': JSONBIN_API_KEY }
+    });
+    if (!r.ok) throw new Error('load failed');
+    const j = await r.json();
+    return j.record || null;
+  } catch(e) {
+    console.warn('Cloud load failed, using local cache', e);
+    return null;
+  }
+}
+
+async function cloudSave(data) {
+  if (!syncEnabled || syncInFlight) return;
+  syncInFlight = true;
+  setSyncStatus('saving');
+  try {
+    const r = await fetch(JSONBIN_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Master-Key': JSONBIN_API_KEY },
+      body: JSON.stringify(data)
+    });
+    if (!r.ok) throw new Error('save failed');
+    setSyncStatus('saved');
+  } catch(e) {
+    console.warn('Cloud save failed', e);
+    setSyncStatus('error');
+  } finally {
+    syncInFlight = false;
+  }
+}
+
+function setSyncStatus(status) {
+  const el = document.getElementById('sync-status');
+  if (!el) return;
+  const map = { saving:'⏳ Syncing…', saved:'✓ Synced', error:'⚠ Sync error — check API key', offline:'◌ Offline mode (local only)' };
+  el.textContent = map[status] || '';
+  el.style.color = status==='error' ? 'var(--red-lose)' : status==='saved' ? 'var(--green-win)' : 'var(--text-3)';
+}
+
+// ── Data ──
 const GROUPS_DATA = {
   A: { teams: [{name:'Mexico',flag:'🇲🇽'},{name:'South Africa',flag:'🇿🇦'},{name:'South Korea',flag:'🇰🇷'},{name:'Czech Rep.',flag:'🇨🇿'}] },
   B: { teams: [{name:'Canada',flag:'🇨🇦'},{name:'Bosnia & Herz.',flag:'🇧🇦'},{name:'Qatar',flag:'🇶🇦'},{name:'Switzerland',flag:'🇨🇭'}] },
@@ -806,44 +863,62 @@ const GROUPS_DATA = {
 };
 
 const KNOCKOUT_ROUNDS = [
-  { id:'r32', name:'Round of 32', date:'28 Jun – 1 Jul', matches: Array.from({length:16},(_,i)=>({id:`r32_${i}`,t1:`TBD`,t2:`TBD`,s1:null,s2:null,pens:false})) },
-  { id:'r16', name:'Round of 16', date:'3 – 6 Jul', matches: Array.from({length:8},(_,i)=>({id:`r16_${i}`,t1:`TBD`,t2:`TBD`,s1:null,s2:null,pens:false})) },
-  { id:'qf', name:'Quarter-finals', date:'9 – 10 Jul', matches: Array.from({length:4},(_,i)=>({id:`qf_${i}`,t1:`TBD`,t2:`TBD`,s1:null,s2:null,pens:false})) },
-  { id:'sf', name:'Semi-finals', date:'13 – 14 Jul', matches: Array.from({length:2},(_,i)=>({id:`sf_${i}`,t1:`TBD`,t2:`TBD`,s1:null,s2:null,pens:false})) },
-  { id:'tp', name:'Third place', date:'18 Jul', matches: [{id:'tp_0',t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false}] },
-  { id:'final', name:'Final', date:'19 Jul · MetLife Stadium', matches: [{id:'final_0',t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false}] }
+  { id:'r32', name:'Round of 32', date:'28 Jun – 1 Jul', matches: Array.from({length:16},(_,i)=>({id:`r32_${i}`,t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false})) },
+  { id:'r16', name:'Round of 16', date:'3 – 6 Jul', matches: Array.from({length:8},(_,i)=>({id:`r16_${i}`,t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false})) },
+  { id:'qf',  name:'Quarter-finals', date:'9 – 10 Jul', matches: Array.from({length:4},(_,i)=>({id:`qf_${i}`,t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false})) },
+  { id:'sf',  name:'Semi-finals', date:'13 – 14 Jul', matches: Array.from({length:2},(_,i)=>({id:`sf_${i}`,t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false})) },
+  { id:'tp',  name:'Third place', date:'18 Jul', matches: [{id:'tp_0',t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false}] },
+  { id:'final',name:'Final', date:'19 Jul · MetLife Stadium', matches: [{id:'final_0',t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false}] }
 ];
 
-const ROUND_PTS = { r32:2, r16:3, qf:4, sf:5, tp:5, final:7 };
 const ALL_TEAMS = Object.values(GROUPS_DATA).flatMap(g=>g.teams.map(t=>t.name));
 
-function getState() {
-  try {
-    const s = JSON.parse(localStorage.getItem('wc2026_state') || '{}');
-    return {
-      groups: s.groups || {},
-      knockout: s.knockout || KNOCKOUT_ROUNDS.map(r=>({...r, matches: r.matches.map(m=>({...m}))})),
-      predictions: s.predictions || [],
-      adminUnlocked: false
-    };
-  } catch { return {groups:{}, knockout:KNOCKOUT_ROUNDS.map(r=>({...r, matches: r.matches.map(m=>({...m}))})), predictions:[], adminUnlocked:false}; }
+function emptyState() {
+  return {
+    groups: {},
+    knockout: KNOCKOUT_ROUNDS.map(r=>({...r, matches: r.matches.map(m=>({...m}))})),
+    predictions: []
+  };
 }
 
-function saveState(state) {
+function localLoad() {
+  try { return JSON.parse(localStorage.getItem('wc2026_state') || 'null'); } catch { return null; }
+}
+
+function localSave(data) {
+  try { localStorage.setItem('wc2026_state', JSON.stringify(data)); } catch {}
+}
+
+let state = localLoad() || emptyState();
+
+async function saveState() {
   const { adminUnlocked, ...toSave } = state;
-  localStorage.setItem('wc2026_state', JSON.stringify(toSave));
+  localSave(toSave);
+  await cloudSave(toSave);
 }
 
-let state = getState();
+async function refreshFromCloud() {
+  if (!syncEnabled) { setSyncStatus('offline'); return; }
+  setSyncStatus('saving');
+  const remote = await cloudLoad();
+  if (remote && remote.predictions !== undefined) {
+    state = { ...emptyState(), ...remote, adminUnlocked: false };
+    localSave(remote);
+    setSyncStatus('saved');
+  } else {
+    setSyncStatus(syncEnabled ? 'error' : 'offline');
+  }
+}
 
+// ── UI Helpers ──
 function showPage(name, el) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('page-'+name).classList.add('active');
   el.classList.add('active');
-  if(name==='groups') renderGroups();
-  if(name==='knockout') renderKnockout();
-  if(name==='leaderboard') renderLeaderboard();
+  if(name==='groups') { refreshFromCloud().then(renderGroups); }
+  if(name==='knockout') { refreshFromCloud().then(renderKnockout); }
+  if(name==='leaderboard') { refreshFromCloud().then(renderLeaderboard); }
   if(name==='predict') renderMyPick();
 }
 
@@ -851,7 +926,7 @@ function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'), 2500);
+  setTimeout(()=>t.classList.remove('show'), 2800);
 }
 
 // ── Groups ──
@@ -906,18 +981,18 @@ function renderKnockout() {
   state.knockout.forEach(round => {
     const sec = document.createElement('div');
     sec.className = 'round-section';
-    const isComplete = round.id === 'final' && round.matches[0].s1 !== null;
-    const champion = isComplete ? (round.matches[0].s1 > round.matches[0].s2 ? round.matches[0].t1 : round.matches[0].t2) : null;
+    const isComplete = round.id==='final' && round.matches[0].s1!==null;
+    const champion = isComplete ? (round.matches[0].s1>round.matches[0].s2?round.matches[0].t1:round.matches[0].t2) : null;
     sec.innerHTML = `
       <div class="round-header">
         <div class="round-name">${round.name}</div>
         <div class="round-date">${round.date}</div>
       </div>
-      ${champion ? `<div class="info-banner" style="margin-bottom:1rem">🏆 Champion: <strong>${champion}</strong></div>` : ''}
+      ${champion?`<div class="info-banner" style="margin-bottom:1rem">🏆 Champion: <strong>${champion}</strong></div>`:''}
       <div class="matches-grid-2">${round.matches.map(m=>{
-        const played = m.s1 !== null;
-        const t1win = played && (m.s1 > m.s2 || (m.s1===m.s2 && m.pens==='1'));
-        const t2win = played && (m.s2 > m.s1 || (m.s1===m.s2 && m.pens==='2'));
+        const played = m.s1!==null;
+        const t1win = played&&(m.s1>m.s2||(m.s1===m.s2&&m.pens==='1'));
+        const t2win = played&&(m.s2>m.s1||(m.s1===m.s2&&m.pens==='2'));
         return `<div class="match-card">
           <div class="match-row ${played?(t1win?'winner':'loser'):''}">
             <span class="match-team-name ${!played?'match-tbd':''}">${m.t1||'TBD'}</span>
@@ -939,66 +1014,63 @@ function renderKnockout() {
 
 // ── Predict ──
 function buildSelects() {
-  ['pred-champion','pred-runner','pred-third','pred-dark'].forEach(id => {
+  ['pred-champion','pred-runner','pred-third','pred-dark'].forEach(id=>{
     const sel = document.getElementById(id);
-    sel.innerHTML = '<option value="">— pick a team —</option>' + ALL_TEAMS.map(t=>`<option value="${t}">${t}</option>`).join('');
+    sel.innerHTML = '<option value="">— pick a team —</option>'+ALL_TEAMS.map(t=>`<option value="${t}">${t}</option>`).join('');
   });
 }
 
-function savePrediction() {
+async function savePrediction() {
   const name = document.getElementById('pred-name').value.trim();
   const champion = document.getElementById('pred-champion').value;
   const runner = document.getElementById('pred-runner').value;
   const third = document.getElementById('pred-third').value;
   const dark = document.getElementById('pred-dark').value;
   const scorer = document.getElementById('pred-scorer').value.trim();
-  const goals = parseInt(document.getElementById('pred-goals').value) || null;
-  if(!name) { showToast('Please enter your name'); return; }
-  if(!champion) { showToast('Please pick a champion'); return; }
+  const goals = parseInt(document.getElementById('pred-goals').value)||null;
+  if(!name){ showToast('Please enter your name'); return; }
+  if(!champion){ showToast('Please pick a champion'); return; }
+  // Refresh first so we don't overwrite someone else's new prediction
+  await refreshFromCloud();
   state.predictions = state.predictions.filter(p=>p.name!==name);
   state.predictions.push({ name, champion, runner, third, dark, scorer, goals, savedAt: Date.now() });
-  saveState(state);
   recalcScores();
+  await saveState();
   renderMyPick();
   document.getElementById('entrants-stat').textContent = state.predictions.length;
   showToast('Prediction saved! ⚽');
 }
 
 function renderMyPick() {
-  const saved = state.predictions.find(p=>p.name===document.getElementById('pred-name').value.trim());
+  const name = document.getElementById('pred-name').value.trim();
+  const saved = state.predictions.find(p=>p.name===name);
   const el = document.getElementById('my-pick-display');
-  if(!saved) { el.innerHTML = '<span style="color:var(--text-3)">No prediction saved yet.</span>'; return; }
-  el.innerHTML = `
-    <div style="margin-bottom:8px"><span class="pick-tag">🏆 ${saved.champion}</span>${saved.runner?`<span class="pick-tag">🥈 ${saved.runner}</span>`:''}</div>
-    ${saved.dark?`<div style="margin-bottom:6px"><span class="pick-tag dark">⚡ Dark horse: ${saved.dark}</span></div>`:''}
-    ${saved.scorer?`<div style="font-size:12px;color:var(--text-2)">Top scorer: ${saved.scorer}</div>`:''}
-    ${saved.goals?`<div style="font-size:12px;color:var(--text-2)">Goals prediction: ${saved.goals}</div>`:''}
-  `;
+  if(!saved){ el.innerHTML='<span style="color:var(--text-3)">No prediction saved yet.</span>'; return; }
+  el.innerHTML=`
+    <div style="margin-bottom:8px"><span class="pick-tag">🏆 ${escHtml(saved.champion)}</span>${saved.runner?`<span class="pick-tag">🥈 ${escHtml(saved.runner)}</span>`:''}</div>
+    ${saved.dark?`<div style="margin-bottom:6px"><span class="pick-tag dark">⚡ Dark horse: ${escHtml(saved.dark)}</span></div>`:''}
+    ${saved.scorer?`<div style="font-size:12px;color:var(--text-2)">Top scorer: ${escHtml(saved.scorer)}</div>`:''}
+    ${saved.goals?`<div style="font-size:12px;color:var(--text-2)">Goals prediction: ${saved.goals}</div>`:''}`;
 }
 
 // ── Scoring ──
 function recalcScores() {
   const finalRound = state.knockout.find(r=>r.id==='final');
-  const finalMatch = finalRound?.matches[0];
-  const champion = finalMatch?.s1!==null ? (finalMatch.s1>finalMatch.s2?finalMatch.t1:finalMatch.t2) : null;
-  const runnerUp = finalMatch?.s1!==null ? (finalMatch.s1>finalMatch.s2?finalMatch.t2:finalMatch.t1) : null;
-  const tpRound = state.knockout.find(r=>r.id==='tp');
-  const tpMatch = tpRound?.matches[0];
-  const thirdPlace = tpMatch?.s1!==null ? (tpMatch.s1>tpMatch.s2?tpMatch.t1:tpMatch.t2) : null;
+  const fm = finalRound?.matches[0];
+  const champion  = fm?.s1!==null ? (fm.s1>fm.s2?fm.t1:fm.t2) : null;
+  const runnerUp  = fm?.s1!==null ? (fm.s1>fm.s2?fm.t2:fm.t1) : null;
+  const tpMatch   = state.knockout.find(r=>r.id==='tp')?.matches[0];
+  const thirdPlace= tpMatch?.s1!==null ? (tpMatch.s1>tpMatch.s2?tpMatch.t1:tpMatch.t2) : null;
 
-  const totalGoals = (() => {
-    let g = 0;
-    Object.values(state.groups).forEach(results=>results.forEach(r=>{ g+=r[2]+r[3]; }));
-    state.knockout.forEach(round=>round.matches.forEach(m=>{ if(m.s1!==null) g+=m.s1+m.s2; }));
-    return g;
-  })();
+  let totalGoals = 0;
+  Object.values(state.groups).forEach(res=>res.forEach(r=>{ totalGoals+=r[2]+r[3]; }));
+  state.knockout.forEach(round=>round.matches.forEach(m=>{ if(m.s1!==null) totalGoals+=m.s1+m.s2; }));
 
   const qfTeams = new Set();
-  const qfRound = state.knockout.find(r=>r.id==='qf');
-  if(qfRound) qfRound.matches.forEach(m=>{ if(m.t1!=='TBD') qfTeams.add(m.t1); if(m.t2!=='TBD') qfTeams.add(m.t2); });
+  state.knockout.find(r=>r.id==='qf')?.matches.forEach(m=>{ if(m.t1!=='TBD') qfTeams.add(m.t1); if(m.t2!=='TBD') qfTeams.add(m.t2); });
 
-  state.predictions.forEach(p => {
-    let pts = 0; const breakdown = [];
+  state.predictions.forEach(p=>{
+    let pts=0; const breakdown=[];
     if(champion && p.champion===champion){ pts+=15; breakdown.push({label:'Champion',pts:15}); }
     if(runnerUp && p.runner===runnerUp){ pts+=7; breakdown.push({label:'Runner-up',pts:7}); }
     if(thirdPlace && p.third===thirdPlace){ pts+=5; breakdown.push({label:'Third place',pts:5}); }
@@ -1008,22 +1080,20 @@ function recalcScores() {
       if(diff===0){ pts+=10; breakdown.push({label:'Exact goals',pts:10}); }
       else if(diff<=5){ pts+=5; breakdown.push({label:'Goals ±5',pts:5}); }
     }
-    p.pts = pts;
-    p.breakdown = breakdown;
+    p.pts=pts; p.breakdown=breakdown;
   });
-  saveState(state);
 }
 
 // ── Leaderboard ──
 function renderLeaderboard() {
   recalcScores();
-  const sorted = [...state.predictions].sort((a,b)=>b.pts-a.pts);
-  const tbody = document.getElementById('lb-body');
-  const empty = document.getElementById('lb-empty');
+  const sorted=[...state.predictions].sort((a,b)=>b.pts-a.pts);
+  const tbody=document.getElementById('lb-body');
+  const empty=document.getElementById('lb-empty');
   if(!sorted.length){ tbody.innerHTML=''; empty.style.display='block'; return; }
   empty.style.display='none';
-  const rankClass = (i)=>i===0?'gold':i===1?'silver':i===2?'bronze':'';
-  tbody.innerHTML = sorted.map((p,i)=>`
+  const rankClass=(i)=>i===0?'gold':i===1?'silver':i===2?'bronze':'';
+  tbody.innerHTML=sorted.map((p,i)=>`
     <tr>
       <td><div class="lb-rank ${rankClass(i)}">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</div></td>
       <td>
@@ -1036,65 +1106,57 @@ function renderLeaderboard() {
       </td>
       <td class="lb-pts">${p.pts}</td>
     </tr>`).join('');
-  document.getElementById('entrants-stat').textContent = state.predictions.length;
+  document.getElementById('entrants-stat').textContent=state.predictions.length;
 }
 
 function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 // ── Admin ──
 function adminLogin() {
-  const pw = document.getElementById('admin-pw-input').value;
-  if(pw===ADMIN_PASSWORD) {
+  const pw=document.getElementById('admin-pw-input').value;
+  if(pw===ADMIN_PASSWORD){
     document.getElementById('admin-lock-screen').style.display='none';
     document.getElementById('admin-panel').style.display='block';
-    state.adminUnlocked = true;
+    state.adminUnlocked=true;
     buildAdminNav();
   } else { showToast('Wrong password'); }
 }
-function adminLogout() {
+function adminLogout(){
   document.getElementById('admin-lock-screen').style.display='block';
   document.getElementById('admin-panel').style.display='none';
-  state.adminUnlocked = false;
+  state.adminUnlocked=false;
   document.getElementById('admin-pw-input').value='';
 }
 
-function buildAdminNav() {
-  const nav = document.getElementById('admin-nav');
-  const items = [
+function buildAdminNav(){
+  const nav=document.getElementById('admin-nav');
+  const items=[
     ...Object.keys(GROUPS_DATA).map(l=>({id:'group_'+l,label:'Group '+l})),
-    {id:'round_r32',label:'Round of 32'},
-    {id:'round_r16',label:'Round of 16'},
-    {id:'round_qf',label:'Quarter-finals'},
-    {id:'round_sf',label:'Semi-finals'},
-    {id:'round_tp',label:'Third place'},
-    {id:'round_final',label:'Final'}
+    {id:'round_r32',label:'Round of 32'},{id:'round_r16',label:'Round of 16'},
+    {id:'round_qf',label:'Quarter-finals'},{id:'round_sf',label:'Semi-finals'},
+    {id:'round_tp',label:'Third place'},{id:'round_final',label:'Final'}
   ];
-  nav.innerHTML = items.map((item,i)=>`<button class="admin-nav-item${i===0?' active':''}" onclick="adminShow('${item.id}',this)">${item.label}</button>`).join('');
-  adminShow('group_A', nav.querySelector('.admin-nav-item'));
+  nav.innerHTML=items.map((item,i)=>`<button class="admin-nav-item${i===0?' active':''}" onclick="adminShow('${item.id}',this)">${item.label}</button>`).join('');
+  adminShow('group_A',nav.querySelector('.admin-nav-item'));
 }
 
-function adminShow(id, el) {
+function adminShow(id,el){
   document.querySelectorAll('.admin-nav-item').forEach(x=>x.classList.remove('active'));
   el.classList.add('active');
-  const content = document.getElementById('admin-content');
-  if(id.startsWith('group_')) {
-    const letter = id.split('_')[1];
-    renderAdminGroup(letter, content);
-  } else {
-    const roundId = id.split('_')[1];
-    renderAdminRound(roundId, content);
-  }
+  const content=document.getElementById('admin-content');
+  if(id.startsWith('group_')) renderAdminGroup(id.split('_')[1],content);
+  else renderAdminRound(id.split('_')[1],content);
 }
 
-function renderAdminGroup(letter, content) {
-  const teams = GROUPS_DATA[letter].teams;
-  const results = state.groups[letter] || [];
-  const matches = [];
+function renderAdminGroup(letter,content){
+  const teams=GROUPS_DATA[letter].teams;
+  const results=state.groups[letter]||[];
+  const matches=[];
   for(let i=0;i<4;i++) for(let j=i+1;j<4;j++) matches.push([i,j]);
-  content.innerHTML = `<div class="card">
+  content.innerHTML=`<div class="card">
     <div class="card-title">Group ${letter} — enter results</div>
-    ${matches.map(([i1,i2],idx)=>{
-      const r = results.find(r=>r[0]===i1&&r[1]===i2)||[i1,i2,'',''];
+    ${matches.map(([i1,i2])=>{
+      const r=results.find(r=>r[0]===i1&&r[1]===i2)||[i1,i2,'',''];
       return `<div class="admin-match">
         <div class="admin-team">${teams[i1].flag} ${teams[i1].name}</div>
         <input type="number" class="admin-score-input" id="ag_${letter}_${i1}_${i2}_s1" value="${r[2]}" min="0" max="20" placeholder="—">
@@ -1107,24 +1169,23 @@ function renderAdminGroup(letter, content) {
   </div>`;
 }
 
-function saveGroupResults(letter) {
-  const teams = GROUPS_DATA[letter].teams;
-  const results = [];
-  for(let i1=0;i1<4;i1++) for(let i2=i1+1;i2<4;i2++) {
-    const s1 = document.getElementById(`ag_${letter}_${i1}_${i2}_s1`).value;
-    const s2 = document.getElementById(`ag_${letter}_${i1}_${i2}_s2`).value;
+async function saveGroupResults(letter){
+  const results=[];
+  for(let i1=0;i1<4;i1++) for(let i2=i1+1;i2<4;i2++){
+    const s1=document.getElementById(`ag_${letter}_${i1}_${i2}_s1`).value;
+    const s2=document.getElementById(`ag_${letter}_${i1}_${i2}_s2`).value;
     if(s1!==''&&s2!=='') results.push([i1,i2,parseInt(s1),parseInt(s2)]);
   }
-  state.groups[letter] = results;
-  saveState(state);
+  state.groups[letter]=results;
   recalcScores();
-  showToast(`Group ${letter} results saved ✓`);
+  await saveState();
+  showToast(`Group ${letter} saved ✓`);
 }
 
-function renderAdminRound(roundId, content) {
-  const round = state.knockout.find(r=>r.id===roundId);
+function renderAdminRound(roundId,content){
+  const round=state.knockout.find(r=>r.id===roundId);
   if(!round){ content.innerHTML=''; return; }
-  content.innerHTML = `<div class="card">
+  content.innerHTML=`<div class="card">
     <div class="card-title">${round.name}</div>
     ${round.matches.map((m,idx)=>`
       <div class="admin-match">
@@ -1147,37 +1208,39 @@ function renderAdminRound(roundId, content) {
   </div>`;
 }
 
-function saveKnockoutRound(roundId) {
-  const round = state.knockout.find(r=>r.id===roundId);
+async function saveKnockoutRound(roundId){
+  const round=state.knockout.find(r=>r.id===roundId);
   round.matches.forEach((m,idx)=>{
-    m.t1 = document.getElementById(`ko_${roundId}_${idx}_t1`).value.trim()||'TBD';
-    m.t2 = document.getElementById(`ko_${roundId}_${idx}_t2`).value.trim()||'TBD';
-    const s1v = document.getElementById(`ko_${roundId}_${idx}_s1`).value;
-    const s2v = document.getElementById(`ko_${roundId}_${idx}_s2`).value;
-    m.s1 = s1v!==''?parseInt(s1v):null;
-    m.s2 = s2v!==''?parseInt(s2v):null;
-    const pens = document.getElementById(`ko_${roundId}_${idx}_pens`).checked;
-    m.pens = pens ? document.getElementById(`ko_${roundId}_${idx}_penswinner`).value : false;
+    m.t1=document.getElementById(`ko_${roundId}_${idx}_t1`).value.trim()||'TBD';
+    m.t2=document.getElementById(`ko_${roundId}_${idx}_t2`).value.trim()||'TBD';
+    const s1v=document.getElementById(`ko_${roundId}_${idx}_s1`).value;
+    const s2v=document.getElementById(`ko_${roundId}_${idx}_s2`).value;
+    m.s1=s1v!==''?parseInt(s1v):null;
+    m.s2=s2v!==''?parseInt(s2v):null;
+    const pens=document.getElementById(`ko_${roundId}_${idx}_pens`).checked;
+    m.pens=pens?document.getElementById(`ko_${roundId}_${idx}_penswinner`).value:false;
   });
-  saveState(state);
   recalcScores();
+  await saveState();
   showToast(`${round.name} saved ✓`);
 }
 
-function copyUrl() {
-  const url = window.location.href;
+function copyUrl(){
+  const url=window.location.href;
   navigator.clipboard.writeText(url).then(()=>showToast('Link copied!')).catch(()=>showToast('Copy the URL from your address bar'));
 }
 
 // ── Init ──
-function init() {
+async function init(){
   buildSelects();
+  const final=new Date('2026-07-19');
+  const days=Math.max(0,Math.ceil((final-new Date())/86400000));
+  document.getElementById('days-stat').textContent=days;
+  document.getElementById('share-url').textContent=window.location.href;
+  if(!syncEnabled) setSyncStatus('offline');
+  await refreshFromCloud();
   renderGroups();
-  const final = new Date('2026-07-19');
-  const days = Math.max(0, Math.ceil((final-new Date())/86400000));
-  document.getElementById('days-stat').textContent = days;
-  document.getElementById('entrants-stat').textContent = state.predictions.length;
-  document.getElementById('share-url').textContent = window.location.href;
+  document.getElementById('entrants-stat').textContent=state.predictions.length;
 }
 
 init();
