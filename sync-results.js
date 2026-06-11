@@ -1,31 +1,33 @@
 #!/usr/bin/env node
-// Pulls finished World Cup 2026 results from api-football.com
+// Pulls finished World Cup 2026 results from football-data.org
 // and writes them into the Supabase wc2026 table.
 //
 // Required env var:
-//   API_FOOTBALL_KEY  — from api-football.com (free tier: 100 req/day)
+//   FOOTBALL_DATA_KEY  — from football-data.org (free tier, register at football-data.org)
 
 const SUPABASE_URL = 'https://yeoygxfdwqjrpqiqrgkz.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inllb3lneGZkd3FqcnBxaXFyZ2t6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExNjYxNzUsImV4cCI6MjA5Njc0MjE3NX0.ydwDlzztpxN8v3gFPXCJTp2hoAICNRjFsUZ3Dyp9NOk';
-const API_KEY      = process.env.API_FOOTBALL_KEY;
-const LEAGUE_ID    = 1;    // FIFA World Cup on api-football.com
-const SEASON       = 2026;
+const API_KEY      = process.env.FOOTBALL_DATA_KEY;
+const COMPETITION  = 'WC'; // football-data.org competition code for FIFA World Cup
 
-if (!API_KEY) { console.error('API_FOOTBALL_KEY env var is required'); process.exit(1); }
+if (!API_KEY) { console.error('FOOTBALL_DATA_KEY env var is required'); process.exit(1); }
 
 // ── Team name normalization ──────────────────────────────────────────────────
-// Maps api-football team names → app team names
+// Maps football-data.org team names → app team names
 const ALIASES = {
-  'Korea Republic':               'South Korea',
-  'Czech Republic':               'Czech Rep.',
-  'Bosnia and Herzegovina':       'Bosnia & Herz.',
-  'Bosnia & Herzegovina':         'Bosnia & Herz.',
-  'Ivory Coast':                  "Côte d'Ivoire",
-  "Cote d'Ivoire":                "Côte d'Ivoire",
-  'Cape Verde':                   'Cabo Verde',
-  'Congo DR':                     'DR Congo',
-  'Democratic Republic of Congo': 'DR Congo',
-  'Curacao':                      'Curaçao',
+  'Korea Republic':                           'South Korea',
+  'Republic of Korea':                        'South Korea',
+  'Czech Republic':                           'Czech Rep.',
+  'Bosnia and Herzegovina':                   'Bosnia & Herz.',
+  'Bosnia & Herzegovina':                     'Bosnia & Herz.',
+  'Ivory Coast':                              "Côte d'Ivoire",
+  "Cote d'Ivoire":                            "Côte d'Ivoire",
+  'Cape Verde':                               'Cabo Verde',
+  'Congo DR':                                 'DR Congo',
+  'Congo, the Democratic Republic of the':    'DR Congo',
+  'Democratic Republic of Congo':             'DR Congo',
+  'Curacao':                                  'Curaçao',
+  'United States':                            'USA',
 };
 const norm = n => ALIASES[n] ?? n;
 
@@ -45,32 +47,31 @@ const GROUPS = {
   L: ['England',     'Croatia',       'Ghana',         'Panama'],
 };
 
-// team → { g: letter, i: index }
 const TEAM_LOC = {};
 for (const [g, teams] of Object.entries(GROUPS))
   teams.forEach((t, i) => { TEAM_LOC[t] = { g, i }; });
 
-// ── Knockout round name → app round id ──────────────────────────────────────
-const ROUND_ID = {
-  'Round of 32':      'r32',  '1/16-finals':     'r32',
-  'Round of 16':      'r16',  '1/8-finals':      'r16',
-  'Quarter-finals':   'qf',   'Quarter Finals':  'qf',
-  'Semi-finals':      'sf',   'Semi Finals':     'sf',
-  '3rd Place Final':  'tp',   '3rd place final': 'tp',
-  'Final':            'final',
+// ── football-data.org stage → app round id ───────────────────────────────────
+const STAGE_TO_ROUND = {
+  'ROUND_OF_32':    'r32',
+  'LAST_16':        'r16',
+  'QUARTER_FINALS': 'qf',
+  'SEMI_FINALS':    'sf',
+  '3RD_PLACE':      'tp',
+  'THIRD_PLACE':    'tp',
+  'FINAL':          'final',
 };
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────────
 async function apiFetch(path) {
-  const url = `https://v3.football.api-sports.io${path}`;
+  const url = `https://api.football-data.org/v4${path}`;
   console.log(`  GET ${url}`);
-  const res = await fetch(url, { headers: { 'x-apisports-key': API_KEY } });
-  if (!res.ok) throw new Error(`API error ${res.status} for ${path}`);
-  const data = await res.json();
-  // Show rate-limit headers if present
-  const remaining = res.headers.get('x-ratelimit-requests-remaining');
-  if (remaining !== null) console.log(`  Rate-limit remaining: ${remaining}`);
-  return data;
+  const res = await fetch(url, { headers: { 'X-Auth-Token': API_KEY } });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`API error ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return res.json();
 }
 
 async function sbGet() {
@@ -101,47 +102,43 @@ async function sbPatch(data) {
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
-  // Load current state from Supabase
   const state = await sbGet();
   if (!state) { console.error('State row not found in Supabase'); process.exit(1); }
 
-  // Fetch all finished fixtures for WC 2026 in one call
-  console.log(`Fetching fixtures: league=${LEAGUE_ID} season=${SEASON}`);
-  const raw = await apiFetch(`/fixtures?league=${LEAGUE_ID}&season=${SEASON}&status=FT-AET-PEN`);
-  console.log(`API response: results=${raw.results ?? '?'} errors=${JSON.stringify(raw.errors ?? [])}`);
-  const { response: fixtures, errors } = raw;
+  console.log(`Fetching finished WC matches from football-data.org…`);
+  const data = await apiFetch(`/competitions/${COMPETITION}/matches?status=FINISHED`);
+  console.log(`API response: count=${data.count ?? 0}`);
 
-  if (errors?.length) { console.error('API errors:', errors); process.exit(1); }
-  if (!fixtures?.length) { console.log('No finished fixtures yet'); return; }
+  const matches = data.matches ?? [];
+  if (!matches.length) { console.log('No finished fixtures yet'); return; }
 
-  console.log(`Processing ${fixtures.length} finished fixture(s)…`);
+  console.log(`Processing ${matches.length} finished match(es)…`);
 
   // ── Build group results ────────────────────────────────────────────────────
   const groups = structuredClone(state.groups ?? {});
 
-  for (const fx of fixtures) {
-    if (!fx.league.round.startsWith('Group')) continue;
+  for (const match of matches) {
+    if (match.stage !== 'GROUP_STAGE') continue;
 
-    const t1 = norm(fx.teams.home.name);
-    const t2 = norm(fx.teams.away.name);
+    const t1 = norm(match.homeTeam.name);
+    const t2 = norm(match.awayTeam.name);
     const l1 = TEAM_LOC[t1];
     const l2 = TEAM_LOC[t2];
     if (!l1 || !l2 || l1.g !== l2.g) {
-      console.warn(`  Unknown/mismatched group teams: ${t1} vs ${t2}`);
+      console.warn(`  Unknown/mismatched group teams: ${t1} (${match.homeTeam.name}) vs ${t2} (${match.awayTeam.name})`);
       continue;
     }
 
-    const s1raw = fx.score.fulltime.home;
-    const s2raw = fx.score.fulltime.away;
-    if (s1raw === null || s2raw === null) continue;
+    const s1 = (match.score.fullTime.home ?? 0) + (match.score.extraTime?.home ?? 0);
+    const s2 = (match.score.fullTime.away ?? 0) + (match.score.extraTime?.away ?? 0);
+    if (match.score.fullTime.home === null) continue; // not yet finished
 
     const g = l1.g;
     if (!groups[g]) groups[g] = [];
 
-    // Always store with lower index first (matches app convention)
     const [i1, i2, sc1, sc2] = l1.i < l2.i
-      ? [l1.i, l2.i, s1raw, s2raw]
-      : [l2.i, l1.i, s2raw, s1raw];
+      ? [l1.i, l2.i, s1, s2]
+      : [l2.i, l1.i, s2, s1];
 
     const exists = groups[g].some(r => r[0] === i1 && r[1] === i2);
     if (!exists) {
@@ -153,27 +150,25 @@ async function main() {
   // ── Build knockout results ─────────────────────────────────────────────────
   const knockout = structuredClone(state.knockout);
 
-  for (const fx of fixtures) {
-    const roundId = ROUND_ID[fx.league.round];
+  for (const match of matches) {
+    const roundId = STAGE_TO_ROUND[match.stage];
     if (!roundId) continue;
 
-    const t1 = norm(fx.teams.home.name);
-    const t2 = norm(fx.teams.away.name);
+    const t1 = norm(match.homeTeam.name);
+    const t2 = norm(match.awayTeam.name);
 
-    // Score = fulltime + any extra time
-    const s1 = (fx.score.fulltime.home ?? 0) + (fx.score.extratime.home ?? 0);
-    const s2 = (fx.score.fulltime.away ?? 0) + (fx.score.extratime.away ?? 0);
-    if (fx.score.fulltime.home === null) continue;
+    const s1 = (match.score.fullTime.home ?? 0) + (match.score.extraTime?.home ?? 0);
+    const s2 = (match.score.fullTime.away ?? 0) + (match.score.extraTime?.away ?? 0);
+    if (match.score.fullTime.home === null) continue;
 
-    const hasPens   = fx.score.penalty.home !== null;
+    const hasPens   = match.score.duration === 'PENALTY_SHOOTOUT';
     const pensWinner = hasPens
-      ? (fx.score.penalty.home > fx.score.penalty.away ? '1' : '2')
+      ? (match.score.penalties.home > match.score.penalties.away ? '1' : '2')
       : false;
 
     const roundObj = knockout?.find(r => r.id === roundId);
-    if (!roundObj) continue;
+    if (!roundObj) { console.warn(`  No round object for ${roundId}`); continue; }
 
-    // Find slot: exact team match, reversed match, or first empty TBD slot
     let slot = roundObj.matches.find(m =>
       (m.t1 === t1 && m.t2 === t2) || (m.t1 === t2 && m.t2 === t1)
     ) ?? roundObj.matches.find(m => m.t1 === 'TBD' && m.t2 === 'TBD');
