@@ -803,14 +803,16 @@ const ADMIN_PASSWORD = 'wc2026';
 //   );
 //   insert into wc2026 (id, data) values ('state', '{"groups":{},"knockout":[],"predictions":[]}');
 //   alter table wc2026 enable row level security;
-//   create policy "public read"  on wc2026 for select using (true);
-//   create policy "public write" on wc2026 for update using (true);
+//   create policy "public read"   on wc2026 for select using (true);
+//   create policy "public write"  on wc2026 for update using (true) with check (true);
+//   create policy "public insert" on wc2026 for insert with check (true);
 
 const SUPABASE_URL     = 'https://yeoygxfdwqjrpqiqrgkz.supabase.co';
 const SUPABASE_ANON    = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inllb3lneGZkd3FqcnBxaXFyZ2t6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExNjYxNzUsImV4cCI6MjA5Njc0MjE3NX0.ydwDlzztpxN8v3gFPXCJTp2hoAICNRjFsUZ3Dyp9NOk';
 
-let syncEnabled  = SUPABASE_URL !== 'PASTE_YOUR_PROJECT_URL';
-let syncInFlight = false;
+let syncEnabled     = SUPABASE_URL !== 'PASTE_YOUR_PROJECT_URL';
+let syncInFlight    = false;
+let pendingSaveData = null;
 
 function sbHeaders() {
   return {
@@ -838,25 +840,31 @@ async function cloudLoad() {
 }
 
 async function cloudSave(data) {
-  if (!syncEnabled || syncInFlight) return;
+  if (!syncEnabled) return;
+  if (syncInFlight) { pendingSaveData = data; return; }
   syncInFlight = true;
   setSyncStatus('saving');
   try {
     const r = await fetch(
       SUPABASE_URL + '/rest/v1/wc2026?id=eq.state',
-      {
-        method:  'PATCH',
-        headers: sbHeaders(),
-        body:    JSON.stringify({ data })
-      }
+      { method: 'PATCH', headers: sbHeaders(), body: JSON.stringify({ data }) }
     );
     if (!r.ok) throw new Error('save ' + r.status);
+    const rows = await r.json();
+    if (!rows?.length) {
+      // Row didn't exist yet — insert it
+      const r2 = await fetch(SUPABASE_URL + '/rest/v1/wc2026', {
+        method: 'POST', headers: sbHeaders(), body: JSON.stringify({ id: 'state', data })
+      });
+      if (!r2.ok) throw new Error('insert ' + r2.status);
+    }
     setSyncStatus('saved');
   } catch(e) {
     console.warn('Cloud save failed:', e);
     setSyncStatus('error');
   } finally {
     syncInFlight = false;
+    if (pendingSaveData) { const q = pendingSaveData; pendingSaveData = null; cloudSave(q); }
   }
 }
 
@@ -927,11 +935,22 @@ async function refreshFromCloud() {
   if (!syncEnabled) { setSyncStatus('offline'); return; }
   setSyncStatus('saving');
   const remote = await cloudLoad();
-  if (remote && remote.predictions !== undefined) {
-    // Merge remote into state, preserving full knockout structure
-    state.groups      = remote.groups      || {};
-    state.predictions = remote.predictions || [];
-    if (remote.knockout && remote.knockout.length) state.knockout = remote.knockout;
+  if (remote) {
+    state.groups = remote.groups || {};
+    if (remote.knockout?.length) state.knockout = remote.knockout;
+
+    // Merge predictions: keep the most recently saved entry per name so a
+    // local save that hasn't reached the cloud yet is never silently wiped.
+    const localPreds  = state.predictions || [];
+    const remotePreds = remote.predictions || [];
+    const map = new Map();
+    remotePreds.forEach(p => map.set(p.name, p));
+    localPreds.forEach(p => {
+      const existing = map.get(p.name);
+      if (!existing || (p.savedAt || 0) > (existing.savedAt || 0)) map.set(p.name, p);
+    });
+    state.predictions = [...map.values()];
+
     localSave({ groups: state.groups, knockout: state.knockout, predictions: state.predictions });
     setSyncStatus('saved');
   } else {
@@ -948,7 +967,21 @@ async function showPage(name, el) {
   if(name==='groups')      { await refreshFromCloud(); renderGroups(); }
   if(name==='knockout')    { await refreshFromCloud(); renderKnockout(); }
   if(name==='leaderboard') { await refreshFromCloud(); renderLeaderboard(); }
-  if(name==='predict')     { await refreshFromCloud(); renderMyPick(); }
+  if(name==='predict') {
+    await refreshFromCloud();
+    const storedName = localStorage.getItem('wc2026_myname') || '';
+    if (storedName) document.getElementById('pred-name').value = storedName;
+    const saved = state.predictions.find(p => p.name === storedName);
+    if (saved) {
+      if (saved.champion) document.getElementById('pred-champion').value = saved.champion;
+      if (saved.runner)   document.getElementById('pred-runner').value   = saved.runner;
+      if (saved.third)    document.getElementById('pred-third').value    = saved.third;
+      if (saved.dark)     document.getElementById('pred-dark').value     = saved.dark;
+      if (saved.scorer)   document.getElementById('pred-scorer').value   = saved.scorer;
+      if (saved.goals)    document.getElementById('pred-goals').value    = saved.goals;
+    }
+    renderMyPick();
+  }
 }
 
 function showToast(msg) {
@@ -1061,6 +1094,8 @@ async function savePrediction() {
 
   if(!name)    { showToast('Please enter your name'); return; }
   if(!champion){ showToast('Please pick a champion'); return; }
+
+  localStorage.setItem('wc2026_myname', name);
 
   // Refresh so we merge on top of the latest remote state
   await refreshFromCloud();
@@ -1270,14 +1305,21 @@ function copyUrl(){
 // ── Init ──
 async function init(){
   buildSelects();
-  const final=new Date('2026-07-19');
-  const days=Math.max(0,Math.ceil((final-new Date())/86400000));
-  document.getElementById('days-stat').textContent=days;
+  const finalDate=new Date('2026-07-19');
+  document.getElementById('days-stat').textContent=Math.max(0,Math.ceil((finalDate-new Date())/86400000));
   document.getElementById('share-url').textContent=window.location.href;
   if(!syncEnabled) setSyncStatus('offline');
   await refreshFromCloud();
   renderGroups();
   document.getElementById('entrants-stat').textContent=state.predictions.length;
+
+  // Auto-refresh leaderboard every 30 s while that tab is open
+  setInterval(async ()=>{
+    if(document.getElementById('page-leaderboard').classList.contains('active')){
+      await refreshFromCloud();
+      renderLeaderboard();
+    }
+  }, 30000);
 }
 
 init();
