@@ -639,6 +639,31 @@
   }
   .ko-pts { font-family:'Bebas Neue',sans-serif; font-size:1rem; color:var(--gold); margin-left:5px; }
   .ko-count { font-weight:400; color:var(--text-3); }
+
+  /* ── Bracket drag-and-drop ── */
+  .bk-pool{display:flex;flex-wrap:wrap;gap:4px;padding:8px;background:var(--off-white);border-radius:6px;margin-bottom:10px;}
+  .bk-chip{padding:2px 8px;border:1px solid var(--border-strong);border-radius:4px;font-size:11px;cursor:grab;user-select:none;white-space:nowrap;transition:opacity .12s,background .1s,color .1s,border-color .1s;}
+  .bk-chip:active{cursor:grabbing;}
+  .bk-chip.bk-placed{opacity:.28;}
+  .bk-chip.bk-sel{background:var(--pitch);color:#fff;border-color:var(--pitch);}
+  .bk-picker{display:flex;align-items:center;flex-wrap:wrap;gap:5px;padding:6px 10px;background:rgba(0,90,50,.07);border-radius:6px;margin-bottom:8px;font-size:12px;}
+  .bk-pick-btn{padding:3px 10px;border:1px solid var(--border-strong);border-radius:4px;font-size:11px;cursor:pointer;background:white;font-family:inherit;transition:all .1s;}
+  .bk-pick-btn:not(:disabled):hover,.bk-pick-btn.bk-has{background:var(--pitch);color:#fff;border-color:var(--pitch);}
+  .bk-pick-btn:disabled{opacity:.35;cursor:not-allowed;}
+  .bk-cancel{color:var(--text-3);}
+  .bk-cols{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin-bottom:.5rem;}
+  @media(max-width:640px){.bk-cols{grid-template-columns:repeat(2,1fr);}}
+  .bk-col{border:1px solid var(--border);border-radius:6px;overflow:hidden;transition:border-color .1s,background .1s;}
+  .bk-col.over{border-color:var(--pitch);background:rgba(0,90,50,.04);}
+  .bk-col-head{background:var(--off-white);padding:4px 7px;font-size:10.5px;font-weight:600;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);}
+  .bk-pts-b{font-family:'Bebas Neue',sans-serif;font-size:.85rem;color:var(--gold);}
+  .bk-cnt{color:var(--text-3);font-weight:400;}
+  .bk-slots{padding:4px;min-height:64px;}
+  .bk-slot-empty{height:20px;border:1px dashed var(--border);border-radius:3px;margin-bottom:2px;opacity:.45;}
+  .bk-pick{display:flex;align-items:center;justify-content:space-between;background:var(--pitch);color:#fff;border-radius:3px;padding:2px 5px 2px 7px;font-size:10.5px;margin-bottom:2px;}
+  .bk-pick-x{cursor:pointer;opacity:.6;font-size:10px;line-height:1;padding:1px 2px;flex-shrink:0;}
+  .bk-pick-x:hover{opacity:1;}
+  .bk-more{font-size:10px;color:var(--text-3);text-align:center;padding:1px 0;}
 </style>
 </head>
 <body>
@@ -1114,6 +1139,8 @@ function renderKnockout() {
 
 // ── Predict ──
 let koSelections = { r32: new Set(), r16: new Set(), qf: new Set(), sf: new Set() };
+let dragTeam = null;
+let bracketSelectedTeam = null;
 
 function buildSelects() {
   const opts = '<option value="">— pick a team —</option>' + ALL_TEAMS.map(t=>`<option value="${t}">${t}</option>`).join('');
@@ -1125,7 +1152,7 @@ function buildSelects() {
 
 function buildPredictUI() {
   buildGroupTabsUI();
-  buildKnockoutPicksUI();
+  buildBracketPicksUI();
 }
 
 function buildGroupTabsUI() {
@@ -1164,52 +1191,136 @@ function switchGroupTab(letter, btn) {
   document.getElementById('pred-group-content').innerHTML = rows.join('');
 }
 
-function buildKnockoutPicksUI() {
+function buildBracketPicksUI() {
   const el = document.getElementById('pred-knockout-content');
   if (!el) return;
-  const rounds = [
-    { id:'r32', label:'Round of 32', pts:2, max:16 },
-    { id:'r16', label:'Round of 16', pts:3, max:8 },
-    { id:'qf',  label:'Quarter-finals', pts:4, max:4 },
-    { id:'sf',  label:'Semi-finals', pts:5, max:2 },
-  ];
-  let html = '';
-  for(const r of rounds){
-    const sel = koSelections[r.id];
-    html += `<div class="ko-pick-section">
-      <div class="ko-pick-header">
-        <span>${r.label} <span class="ko-pts">${r.pts}pts</span> each correct</span>
-        <span class="ko-count" id="kocnt_${r.id}">${sel.size}/${r.max} picked</span>
-      </div>
-      <div class="team-chips">${ALL_TEAMS.map(t=>`<span class="team-chip${sel.has(t)?' selected':''}"
-        onclick="toggleChip('${r.id}','${t.replace(/'/g,"\\'").replace(/"/g,'&quot;')}',this,${r.max})">${escHtml(t)}</span>`).join('')}
-      </div>
-    </div>`;
+  // Build static outer structure once (podium stays in DOM, only bracket inner rebuilds)
+  if (!document.getElementById('pred-bracket-inner')) {
+    const opts = '<option value="">— pick a team —</option>'+ALL_TEAMS.map(t=>`<option value="${t}">${escHtml(t)}</option>`).join('');
+    el.innerHTML = `
+      <div id="pred-bracket-inner"></div>
+      <div class="ko-pick-section" style="margin-top:.75rem;">
+        <div class="ko-pick-header">Podium picks</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:4px;">
+          <div><div class="form-label" style="margin-bottom:4px;">🏆 Champion (15pts)</div>
+            <div class="select-wrap"><select id="pred-champion" class="form-select">${opts}</select></div></div>
+          <div><div class="form-label" style="margin-bottom:4px;">🥈 Runner-up (7pts)</div>
+            <div class="select-wrap"><select id="pred-runner" class="form-select">${opts}</select></div></div>
+          <div><div class="form-label" style="margin-bottom:4px;">🥉 Third place (5pts)</div>
+            <div class="select-wrap"><select id="pred-third" class="form-select">${opts}</select></div></div>
+        </div>
+      </div>`;
   }
-  // Podium picks
-  const opts = '<option value="">— pick a team —</option>'+ALL_TEAMS.map(t=>`<option value="${t}">${t}</option>`).join('');
-  html += `<div class="ko-pick-section">
-    <div class="ko-pick-header">Podium picks</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:4px;">
-      <div><div class="form-label" style="margin-bottom:4px;">🏆 Champion (15pts)</div>
-        <div class="select-wrap"><select id="pred-champion" class="form-select">${opts}</select></div></div>
-      <div><div class="form-label" style="margin-bottom:4px;">🥈 Runner-up (7pts)</div>
-        <div class="select-wrap"><select id="pred-runner" class="form-select">${opts}</select></div></div>
-      <div><div class="form-label" style="margin-bottom:4px;">🥉 Third place (5pts)</div>
-        <div class="select-wrap"><select id="pred-third" class="form-select">${opts}</select></div></div>
-    </div>
-  </div>`;
-  el.innerHTML = html;
+  refreshBracketInner();
 }
 
-function toggleChip(roundId, team, el, max) {
-  const set = koSelections[roundId];
-  if(set.has(team)){ set.delete(team); el.classList.remove('selected'); }
-  else {
-    if(set.size>=max){ showToast(`Max ${max} picks for this round`); return; }
-    set.add(team); el.classList.add('selected');
+function refreshBracketInner() {
+  const el = document.getElementById('pred-bracket-inner');
+  if (!el) return;
+  const rounds = [
+    {id:'r32', label:'Round of 32',    short:'R32', pts:2, max:16},
+    {id:'r16', label:'Round of 16',    short:'R16', pts:3, max:8},
+    {id:'qf',  label:'Quarter-finals', short:'QF',  pts:4, max:4},
+    {id:'sf',  label:'Semi-finals',    short:'SF',  pts:5, max:2},
+  ];
+
+  // Pool chips — placed (in any round) are dimmed
+  const poolHtml = ALL_TEAMS.map(t => {
+    const placed = rounds.some(r => koSelections[r.id].has(t));
+    const isSel  = t === bracketSelectedTeam;
+    return `<div class="bk-chip${placed?' bk-placed':''}${isSel?' bk-sel':''}"
+      draggable="true" data-team="${escHtml(t)}"
+      ondragstart="bracketDragStart(event)" onclick="bracketPoolClick(event)">${escHtml(t)}</div>`;
+  }).join('');
+
+  // Round-picker bar (shown when a team is tapped)
+  const pickerHtml = bracketSelectedTeam ? (() => {
+    const btns = rounds.map(r => {
+      const has  = koSelections[r.id].has(bracketSelectedTeam);
+      const full = !has && koSelections[r.id].size >= r.max;
+      return `<button class="bk-pick-btn${has?' bk-has':''}" ${full?'disabled':''}
+        onclick="bracketAddFromPicker('${r.id}',${r.max})">${r.short}${has?' ✓':''}</button>`;
+    }).join('');
+    return `<div class="bk-picker">
+      <span style="color:var(--text-2);font-size:11.5px;">Add <strong>${escHtml(bracketSelectedTeam)}</strong> to:</span>
+      ${btns}
+      <button class="bk-pick-btn bk-cancel" onclick="bracketSelectedTeam=null;refreshBracketInner()">✕</button>
+    </div>`;
+  })() : '';
+
+  // Round columns
+  const colsHtml = rounds.map(r => {
+    const sel   = koSelections[r.id];
+    const picks = [...sel].map(t =>
+      `<div class="bk-pick" data-round="${r.id}" data-team="${escHtml(t)}">
+        <span>${escHtml(t)}</span>
+        <span class="bk-pick-x" onclick="bracketRemove(this)">✕</span>
+      </div>`).join('');
+    const rem  = r.max - sel.size;
+    const show = Math.min(rem, r.id==='r32'||r.id==='r16' ? 3 : rem);
+    const more = rem - show > 0 ? `<div class="bk-more">+${rem - show} more slot${rem-show>1?'s':''}</div>` : '';
+    const empties = Array(show).fill('<div class="bk-slot-empty"></div>').join('');
+    return `<div class="bk-col" id="bcol_${r.id}"
+      ondragover="event.preventDefault();this.classList.add('over')"
+      ondragleave="this.classList.remove('over')"
+      ondrop="bracketDrop(event,'${r.id}',${r.max})">
+      <div class="bk-col-head">
+        <span>${r.short}</span>
+        <span><span class="bk-pts-b">${r.pts}pt</span>&thinsp;<span class="bk-cnt">${sel.size}/${r.max}</span></span>
+      </div>
+      <div class="bk-slots">${picks}${empties}${more}</div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `<p style="font-size:11.5px;color:var(--text-3);margin:0 0 8px;">
+    Drag teams into a round — or tap a team then choose which round.
+  </p>
+  <div class="bk-pool">${poolHtml}</div>
+  ${pickerHtml}
+  <div class="bk-cols">${colsHtml}</div>`;
+}
+
+function bracketDragStart(event) {
+  dragTeam = event.currentTarget.dataset.team;
+  event.dataTransfer.setData('text/plain', dragTeam);
+  event.dataTransfer.effectAllowed = 'copy';
+}
+
+function bracketDrop(event, roundId, max) {
+  event.preventDefault();
+  document.getElementById('bcol_'+roundId)?.classList.remove('over');
+  const team = dragTeam || event.dataTransfer.getData('text/plain');
+  dragTeam = null;
+  if (!team) return;
+  const sel = koSelections[roundId];
+  if (sel.has(team)) return;
+  if (sel.size >= max) { showToast(`Max ${max} teams for this round`); return; }
+  sel.add(team);
+  refreshBracketInner();
+}
+
+function bracketRemove(xEl) {
+  const pick = xEl.closest('.bk-pick');
+  koSelections[pick.dataset.round].delete(pick.dataset.team);
+  refreshBracketInner();
+}
+
+function bracketPoolClick(event) {
+  const team = event.currentTarget.dataset.team;
+  bracketSelectedTeam = (bracketSelectedTeam === team) ? null : team;
+  refreshBracketInner();
+}
+
+function bracketAddFromPicker(roundId, max) {
+  if (!bracketSelectedTeam) return;
+  const sel = koSelections[roundId];
+  if (sel.has(bracketSelectedTeam)) {
+    sel.delete(bracketSelectedTeam);
+  } else {
+    if (sel.size >= max) { showToast(`Max ${max} teams for this round`); return; }
+    sel.add(bracketSelectedTeam);
   }
-  document.getElementById(`kocnt_${roundId}`).textContent = `${set.size}/${max} picked`;
+  refreshBracketInner();
 }
 
 function fillPredictForm(saved) {
@@ -1220,7 +1331,7 @@ function fillPredictForm(saved) {
   // Restore ko selections then rebuild UI
   for(const r of ['r32','r16','qf','sf'])
     koSelections[r] = new Set(saved.knockoutPicks?.[r] || []);
-  buildKnockoutPicksUI();
+  buildBracketPicksUI();
   // Set podium selects after UI rebuild
   if(saved.champion){ const s=document.getElementById('pred-champion'); if(s) s.value=saved.champion; }
   if(saved.runner)  { const s=document.getElementById('pred-runner');   if(s) s.value=saved.runner; }
