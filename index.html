@@ -238,72 +238,38 @@
   .form-D { background: var(--amber); color: #fff; }
   .form-L { background: var(--red-lose); }
 
-  /* ── Knockout ── */
-  .round-section { margin-bottom: 2.5rem; }
-  .round-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 1rem;
+  /* ── Knockout bracket ── */
+  .kb-scroll { overflow-x:auto; padding-bottom:1rem; }
+  .kb-round-label {
+    font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.07em;
+    color:var(--text-3); text-align:center; padding-bottom:8px; white-space:nowrap;
   }
-  .round-name {
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 1.25rem;
-    color: var(--pitch);
-    letter-spacing: 0.04em;
+  .kb-match {
+    border:1px solid var(--border); border-radius:6px; overflow:hidden;
+    background:white; width:136px; flex-shrink:0;
+    box-shadow:0 1px 3px rgba(0,0,0,.06);
   }
-  .round-date {
-    font-size: 12px;
-    color: var(--text-3);
-    font-weight: 500;
+  .kb-team {
+    display:flex; align-items:center; gap:4px;
+    padding:6px 8px; font-size:11.5px; line-height:1.2;
   }
-  .matches-grid-2 {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 10px;
+  .kb-team + .kb-team { border-top:1px solid var(--border); }
+  .kb-team.kb-win { background:var(--green-bg); font-weight:600; }
+  .kb-team.kb-loss { opacity:.45; }
+  .kb-team.kb-tbd  { color:var(--text-3); }
+  .kb-name  { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
+  .kb-score { font-weight:700; font-size:13px; min-width:16px; text-align:right; }
+  .kb-pens  {
+    font-size:9px; text-align:center; color:var(--text-3);
+    padding:1px 0; background:var(--surface-2);
+    border-top:1px solid var(--border); border-bottom:1px solid var(--border);
   }
-  .match-card {
-    background: white;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    overflow: hidden;
-  }
-  .match-row {
-    display: flex;
-    align-items: center;
-    padding: 9px 12px;
-    gap: 10px;
-  }
-  .match-row:not(:last-of-type) { border-bottom: 1px solid var(--border); }
-  .match-row.winner { background: var(--green-bg); }
-  .match-row.loser { opacity: 0.5; }
-  .match-team-name { flex: 1; font-size: 13px; font-weight: 500; }
-  .match-score-val {
-    font-size: 16px;
-    font-weight: 600;
-    min-width: 20px;
-    text-align: center;
-    color: var(--text);
-  }
-  .match-tbd { color: var(--text-3); }
-  .match-footer {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 6px 12px;
-    background: var(--surface-2);
-    font-size: 11px;
-    color: var(--text-3);
-    border-top: 1px solid var(--border);
-  }
-  .pens-badge {
-    background: var(--amber-bg);
-    color: var(--amber);
-    font-size: 10px;
-    font-weight: 600;
-    padding: 1px 6px;
-    border-radius: 4px;
-  }
+  .kb-tp-row { display:flex; align-items:center; gap:12px; margin-top:1.5rem; flex-wrap:wrap; }
+  .kb-tp-label { font-family:'Bebas Neue',sans-serif; font-size:1rem; color:var(--pitch); white-space:nowrap; }
+  /* legacy round-name used in champion banner */
+  .round-name { font-family:'Bebas Neue',sans-serif; font-size:1.25rem; color:var(--pitch); letter-spacing:.04em; }
+  .round-date { font-size:12px; color:var(--text-3); font-weight:500; }
+  .pens-badge { background:var(--amber-bg); color:var(--amber); font-size:10px; font-weight:600; padding:1px 6px; border-radius:4px; }
 
   /* ── Predict ── */
   .predict-layout {
@@ -1111,42 +1077,114 @@ function renderGroups() {
   }
 }
 
-// ── Knockout ──
+// ── Knockout bracket ──
 function renderKnockout() {
   const el = document.getElementById('knockout-content');
-  el.innerHTML = '';
-  state.knockout.forEach(round => {
-    const sec = document.createElement('div');
-    sec.className = 'round-section';
-    const isComplete = round.id==='final' && round.matches[0].s1!==null;
-    const champion = isComplete ? (round.matches[0].s1>round.matches[0].s2?round.matches[0].t1:round.matches[0].t2) : null;
-    sec.innerHTML = `
-      <div class="round-header">
-        <div class="round-name">${round.name}</div>
-        <div class="round-date">${round.date}</div>
+  const rnd = {};
+  state.knockout.forEach(r => { rnd[r.id] = r; });
+
+  const SLOT = 54;  // px per R32 slot — total height = 16 × 54 = 864
+  const COL  = 160; // column width (136px card + 12px pad each side)
+  const roundDefs = [
+    { id:'r32',   label:'Round of 32',    n:16 },
+    { id:'r16',   label:'Round of 16',    n:8  },
+    { id:'qf',    label:'Quarter-finals', n:4  },
+    { id:'sf',    label:'Semi-finals',    n:2  },
+    { id:'final', label:'Final',          n:1  },
+  ];
+  const totalH = 16 * SLOT;
+
+  function kbMatch(m, id) {
+    if (!m) m = { t1:'TBD', t2:'TBD', s1:null, s2:null, pens:false };
+    const played = m.s1 != null;
+    const w = played ? matchWinner(m) : null;
+    function row(team, score) {
+      const tbd  = !team || team === 'TBD';
+      const win  = !tbd && w === team;
+      const loss = played && !tbd && w !== team;
+      return `<div class="kb-team${win?' kb-win':loss?' kb-loss':tbd?' kb-tbd':''}">
+        <span class="kb-name">${tbd ? 'TBD' : escHtml(team)}</span>
+        <span class="kb-score">${played ? score : ''}</span>
+      </div>`;
+    }
+    const pens = played && m.pens ? `<div class="kb-pens">Pen</div>` : '';
+    return `<div class="kb-match" id="${id}">${row(m.t1,m.s1)}${pens}${row(m.t2,m.s2)}</div>`;
+  }
+
+  // Build label row + slot columns
+  let labelsHtml = '', colsHtml = '';
+  for (const rd of roundDefs) {
+    const round = rnd[rd.id];
+    const slotH = totalH / rd.n;
+    labelsHtml += `<div class="kb-round-label" style="width:${COL}px;">${rd.label}</div>`;
+    let slots = '';
+    for (let i = 0; i < rd.n; i++) {
+      const m = round?.matches[i];
+      slots += `<div style="height:${slotH}px;display:flex;align-items:center;padding:0 12px;">${kbMatch(m,`kb-m-${rd.id}-${i}`)}</div>`;
+    }
+    colsHtml += `<div style="display:flex;flex-direction:column;">${slots}</div>`;
+  }
+
+  // Third place
+  const tpM = rnd['tp']?.matches[0];
+  const tpDate = rnd['tp']?.date || '';
+
+  // Champion banner
+  const fm = rnd['final']?.matches[0];
+  const champ = fm?.s1 != null ? matchWinner(fm) : null;
+  const champBanner = champ ? `<div class="info-banner" style="margin-bottom:1rem">🏆 Champion: <strong>${escHtml(champ)}</strong></div>` : '';
+
+  el.innerHTML = `${champBanner}
+  <div class="kb-scroll">
+    <div style="display:inline-flex;flex-direction:column;min-width:max-content;">
+      <div style="display:flex;">${labelsHtml}</div>
+      <div style="position:relative;display:inline-flex;">
+        <svg id="kb-svg" style="position:absolute;top:0;left:0;width:100%;height:${totalH}px;overflow:visible;pointer-events:none;z-index:0;" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div style="display:flex;position:relative;z-index:1;">${colsHtml}</div>
       </div>
-      ${champion?`<div class="info-banner" style="margin-bottom:1rem">🏆 Champion: <strong>${champion}</strong></div>`:''}
-      <div class="matches-grid-2">${round.matches.map(m=>{
-        const played = m.s1!==null;
-        const t1win = played&&(m.s1>m.s2||(m.s1===m.s2&&m.pens==='1'));
-        const t2win = played&&(m.s2>m.s1||(m.s1===m.s2&&m.pens==='2'));
-        return `<div class="match-card">
-          <div class="match-row ${played?(t1win?'winner':'loser'):''}">
-            <span class="match-team-name ${!played?'match-tbd':''}">${m.t1||'TBD'}</span>
-            <span class="match-score-val">${played?m.s1:'—'}</span>
-          </div>
-          <div class="match-row ${played?(t2win?'winner':'loser'):''}">
-            <span class="match-team-name ${!played?'match-tbd':''}">${m.t2||'TBD'}</span>
-            <span class="match-score-val">${played?m.s2:'—'}</span>
-          </div>
-          <div class="match-footer">
-            <span>${played?'Full time':'Upcoming'}</span>
-            ${m.pens?`<span class="pens-badge">Pens ${m.pens}</span>`:''}
-          </div>
-        </div>`;
-      }).join('')}</div>`;
-    el.appendChild(sec);
-  });
+    </div>
+  </div>
+  <div class="kb-tp-row">
+    <span class="kb-tp-label">3rd place</span>
+    <span class="round-date">${tpDate}</span>
+    ${kbMatch(tpM,'kb-m-tp-0')}
+  </div>`;
+
+  requestAnimationFrame(drawBracketLines);
+}
+
+function drawBracketLines() {
+  const svg = document.getElementById('kb-svg');
+  if (!svg) return;
+  svg.innerHTML = '';
+  const base = svg.parentElement; // the position:relative wrapper
+  const br   = base.getBoundingClientRect();
+
+  const edges = [];
+  for (let i = 0; i < 16; i++) edges.push([`kb-m-r32-${i}`, `kb-m-r16-${Math.floor(i/2)}`]);
+  for (let i = 0; i < 8;  i++) edges.push([`kb-m-r16-${i}`, `kb-m-qf-${Math.floor(i/2)}`]);
+  for (let i = 0; i < 4;  i++) edges.push([`kb-m-qf-${i}`,  `kb-m-sf-${Math.floor(i/2)}`]);
+  for (let i = 0; i < 2;  i++) edges.push([`kb-m-sf-${i}`,  `kb-m-final-0`]);
+
+  for (const [aId, bId] of edges) {
+    const aEl = document.getElementById(aId);
+    const bEl = document.getElementById(bId);
+    if (!aEl || !bEl) continue;
+    const ar = aEl.getBoundingClientRect();
+    const bR = bEl.getBoundingClientRect();
+    const x1 = ar.right  - br.left;
+    const y1 = ar.top    + ar.height / 2 - br.top;
+    const x2 = bR.left   - br.left;
+    const y2 = bR.top    + bR.height / 2 - br.top;
+    const mx = (x1 + x2) / 2;
+    const p  = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p.setAttribute('d', `M${x1} ${y1} H${mx} V${y2} H${x2}`);
+    p.setAttribute('stroke', '#d0d5dd');
+    p.setAttribute('fill', 'none');
+    p.setAttribute('stroke-width', '1.5');
+    p.setAttribute('stroke-linecap', 'round');
+    svg.appendChild(p);
+  }
 }
 
 // ── Predict ──
@@ -1868,6 +1906,9 @@ async function init(){
       renderLeaderboard();
     }
   }, 30000);
+
+  // Redraw bracket connector lines on resize
+  window.addEventListener('resize', drawBracketLines);
 }
 
 init();
