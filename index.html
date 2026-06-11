@@ -1427,21 +1427,144 @@ function adminLogout(){
 function buildAdminNav(){
   const nav=document.getElementById('admin-nav');
   const items=[
+    {id:'predictions',label:'👥 Predictions'},
     ...Object.keys(GROUPS_DATA).map(l=>({id:'group_'+l,label:'Group '+l})),
     {id:'round_r32',label:'Round of 32'},{id:'round_r16',label:'Round of 16'},
     {id:'round_qf',label:'Quarter-finals'},{id:'round_sf',label:'Semi-finals'},
     {id:'round_tp',label:'Third place'},{id:'round_final',label:'Final'}
   ];
   nav.innerHTML=items.map((item,i)=>`<button class="admin-nav-item${i===0?' active':''}" onclick="adminShow('${item.id}',this)">${item.label}</button>`).join('');
-  adminShow('group_A',nav.querySelector('.admin-nav-item'));
+  adminShow('predictions',nav.querySelector('.admin-nav-item'));
 }
 
 function adminShow(id,el){
   document.querySelectorAll('.admin-nav-item').forEach(x=>x.classList.remove('active'));
   el.classList.add('active');
   const content=document.getElementById('admin-content');
-  if(id.startsWith('group_')) renderAdminGroup(id.split('_')[1],content);
+  if(id==='predictions')     renderAdminPredictions(content);
+  else if(id.startsWith('group_')) renderAdminGroup(id.split('_')[1],content);
   else renderAdminRound(id.split('_')[1],content);
+}
+
+function renderAdminPredictions(content){
+  recalcScores();
+  const preds=[...state.predictions].sort((a,b)=>(b.pts||0)-(a.pts||0));
+  if(!preds.length){
+    content.innerHTML=`<div class="card"><div style="padding:2rem;text-align:center;color:var(--text-3);font-size:13px;">No predictions yet.</div></div>`;
+    return;
+  }
+  content.innerHTML=`<div class="card">
+    <div class="card-title">All predictions (${preds.length})</div>
+    ${preds.map(p=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;" data-predname="${escHtml(p.name)}">
+        <div style="flex:1;min-width:160px;">
+          <div style="font-weight:600;font-size:13px;">${escHtml(p.name)}</div>
+          <div style="font-size:11.5px;color:var(--text-3);margin-top:2px;">
+            ${p.champion?`🏆 ${escHtml(p.champion)}`:'—'}
+            ${p.runner?` · 🥈 ${escHtml(p.runner)}`:''}
+            ${p.dark?` · ⚡ ${escHtml(p.dark)}`:''}
+          </div>
+          <div style="font-size:11px;color:var(--text-3);margin-top:1px;">
+            ${Object.values(p.groupPicks||{}).reduce((s,g)=>s+Object.keys(g).length,0)} group picks ·
+            ${['r32','r16','qf','sf'].reduce((s,r)=>s+(p.knockoutPicks?.[r]?.length||0),0)} KO picks
+          </div>
+        </div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:1.5rem;color:var(--pitch);min-width:36px;text-align:right;">${p.pts||0}</div>
+        <div style="display:flex;gap:6px;flex-shrink:0;">
+          <button class="btn btn-secondary" style="font-size:12px;padding:5px 12px;"
+            onclick="adminEditPred(this.closest('[data-predname]').dataset.predname)">Edit</button>
+          <button class="btn" style="font-size:12px;padding:5px 12px;background:var(--red-bg);color:var(--red-lose);border:1px solid rgba(185,64,64,0.2);"
+            onclick="adminDeletePred(this.closest('[data-predname]').dataset.predname)">Delete</button>
+        </div>
+      </div>`).join('')}
+  </div>`;
+}
+
+function adminEditPred(name){
+  const p=state.predictions.find(x=>x.name===name);
+  if(!p) return;
+  const opts='<option value="">— pick —</option>'+ALL_TEAMS.map(t=>`<option value="${t}">${escHtml(t)}</option>`).join('');
+  const content=document.getElementById('admin-content');
+  content.innerHTML=`<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+      <div class="card-title" style="margin-bottom:0;">Edit: ${escHtml(name)}</div>
+      <button class="btn btn-secondary" style="font-size:12px;padding:5px 12px;"
+        onclick="adminShow('predictions',document.querySelector('.admin-nav-item'))">← Back</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Name</label>
+      <input type="text" id="ep-name" class="form-input" value="${escHtml(p.name)}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">🏆 Champion</label>
+      <div class="select-wrap"><select id="ep-champion" class="form-select">${opts}</select></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">🥈 Runner-up</label>
+      <div class="select-wrap"><select id="ep-runner" class="form-select">${opts}</select></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">🥉 Third place</label>
+      <div class="select-wrap"><select id="ep-third" class="form-select">${opts}</select></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">⚡ Dark horse</label>
+      <div class="select-wrap"><select id="ep-dark" class="form-select">${opts}</select></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">👟 Top scorer</label>
+      <input type="text" id="ep-scorer" class="form-input" value="${escHtml(p.scorer||'')}">
+    </div>
+    <div class="form-group" style="margin-bottom:1.25rem;">
+      <label class="form-label">Total goals</label>
+      <input type="number" id="ep-goals" class="form-input" value="${p.goals||''}">
+    </div>
+    <div class="save-row" style="gap:8px;">
+      <button class="btn btn-secondary"
+        onclick="adminShow('predictions',document.querySelector('.admin-nav-item'))">Cancel</button>
+      <button class="btn btn-primary" style="width:auto;padding:8px 24px;"
+        onclick="adminSavePred(${JSON.stringify(name)})">Save changes</button>
+    </div>
+  </div>`;
+  // Set selects after render
+  ['champion','runner','third','dark'].forEach(f=>{
+    const el=document.getElementById('ep-'+f);
+    if(el && p[f]) el.value=p[f];
+  });
+}
+
+async function adminSavePred(originalName){
+  const p=state.predictions.find(x=>x.name===originalName);
+  if(!p){ showToast('Prediction not found'); return; }
+  const newName=document.getElementById('ep-name').value.trim();
+  if(!newName){ showToast('Name cannot be empty'); return; }
+  if(newName!==originalName && state.predictions.some(x=>x.name===newName)){
+    showToast('That name is already taken'); return;
+  }
+  p.name     = newName;
+  p.champion = document.getElementById('ep-champion').value;
+  p.runner   = document.getElementById('ep-runner').value;
+  p.third    = document.getElementById('ep-third').value;
+  p.dark     = document.getElementById('ep-dark').value;
+  p.scorer   = document.getElementById('ep-scorer').value.trim();
+  p.goals    = parseInt(document.getElementById('ep-goals').value)||null;
+  p.savedAt  = Date.now();
+  recalcScores();
+  await saveState();
+  showToast(`${escHtml(newName)} updated ✓`);
+  // Re-activate predictions nav item and re-render list
+  const navItem=document.querySelector('.admin-nav-item');
+  adminShow('predictions', navItem);
+}
+
+async function adminDeletePred(name){
+  if(!confirm(`Delete "${name}"'s prediction? This cannot be undone.`)) return;
+  state.predictions=state.predictions.filter(p=>p.name!==name);
+  recalcScores();
+  await saveState();
+  document.getElementById('entrants-stat').textContent=state.predictions.length;
+  showToast(`${name} deleted`);
+  renderAdminPredictions(document.getElementById('admin-content'));
 }
 
 function renderAdminGroup(letter,content){
