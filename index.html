@@ -1129,14 +1129,14 @@ function renderMyPick() {
 function recalcScores() {
   const finalRound = state.knockout.find(r=>r.id==='final');
   const fm = finalRound?.matches[0];
-  const champion  = fm?.s1!==null ? (fm.s1>fm.s2?fm.t1:fm.t2) : null;
-  const runnerUp  = fm?.s1!==null ? (fm.s1>fm.s2?fm.t2:fm.t1) : null;
+  const champion  = fm?.s1 != null ? (fm.s1>fm.s2?fm.t1:fm.t2) : null;
+  const runnerUp  = fm?.s1 != null ? (fm.s1>fm.s2?fm.t2:fm.t1) : null;
   const tpMatch   = state.knockout.find(r=>r.id==='tp')?.matches[0];
-  const thirdPlace= tpMatch?.s1!==null ? (tpMatch.s1>tpMatch.s2?tpMatch.t1:tpMatch.t2) : null;
+  const thirdPlace= tpMatch?.s1 != null ? (tpMatch.s1>tpMatch.s2?tpMatch.t1:tpMatch.t2) : null;
 
   let totalGoals = 0;
   Object.values(state.groups).forEach(res=>res.forEach(r=>{ totalGoals+=r[2]+r[3]; }));
-  state.knockout.forEach(round=>round.matches.forEach(m=>{ if(m.s1!==null) totalGoals+=m.s1+m.s2; }));
+  state.knockout.forEach(round=>round.matches.forEach(m=>{ if(m.s1 != null) totalGoals+=m.s1+m.s2; }));
 
   const qfTeams = new Set();
   state.knockout.find(r=>r.id==='qf')?.matches.forEach(m=>{ if(m.t1!=='TBD') qfTeams.add(m.t1); if(m.t2!=='TBD') qfTeams.add(m.t2); });
