@@ -727,7 +727,8 @@
           <div class="card-title">Your details</div>
           <div class="form-group">
             <label class="form-label">Your name</label>
-            <input type="text" id="pred-name" class="form-input" placeholder="e.g. Haoran" />
+            <input type="text" id="pred-name" class="form-input" placeholder="e.g. Haoran"
+              onblur="onNameBlur()" />
           </div>
           <div class="form-group">
             <label class="form-label">⚡ Dark horse — reaches QF or better (8pts)</label>
@@ -759,7 +760,10 @@
           <div id="pred-knockout-content"></div>
         </div>
 
-        <button class="btn btn-primary" onclick="savePrediction()" style="margin-bottom:1rem;">Save all predictions ⚽</button>
+        <div id="edit-notice" style="display:none;font-size:12px;color:var(--pitch);background:rgba(0,90,50,.07);border:1px solid rgba(0,90,50,.15);border-radius:6px;padding:8px 12px;margin-bottom:.6rem;">
+          ✏️ Editing your existing prediction — save to update it.
+        </div>
+        <button id="save-pred-btn" class="btn btn-primary" onclick="savePrediction()" style="margin-bottom:1rem;">Save all predictions ⚽</button>
 
         <div class="share-box">
           <p>Share with colleagues so they can add their own predictions:</p>
@@ -1038,11 +1042,13 @@ async function showPage(name, el) {
     await refreshFromCloud();
     const storedName = localStorage.getItem('wc2026_myname') || '';
     if (storedName) document.getElementById('pred-name').value = storedName;
-    // Reset ko selections then fill from saved prediction
+    // Reset bracket state and ko selections
+    bracketSelectedTeam = null;
     for(const r of ['r32','r16','qf','sf']) koSelections[r] = new Set();
     buildPredictUI();
     const saved = state.predictions.find(p => p.name === storedName);
     if (saved) fillPredictForm(saved);
+    updateEditState();
     renderMyPick();
   }
 }
@@ -1356,6 +1362,29 @@ function collectGroupPicks() {
   return groupPicks;
 }
 
+function updateEditState() {
+  const name = document.getElementById('pred-name')?.value.trim() || '';
+  const hasExisting = name && !!state.predictions.find(p => p.name === name);
+  const notice = document.getElementById('edit-notice');
+  const btn    = document.getElementById('save-pred-btn');
+  if (notice) notice.style.display = hasExisting ? 'block' : 'none';
+  if (btn)    btn.textContent = hasExisting ? 'Update prediction ⚽' : 'Save all predictions ⚽';
+}
+
+function onNameBlur() {
+  const name = document.getElementById('pred-name').value.trim();
+  if (!name) return;
+  const saved = state.predictions.find(p => p.name === name);
+  if (saved) {
+    bracketSelectedTeam = null;
+    for(const r of ['r32','r16','qf','sf']) koSelections[r] = new Set();
+    fillPredictForm(saved);
+    showToast(`Loaded ${name}'s existing prediction`);
+  }
+  updateEditState();
+  renderMyPick();
+}
+
 async function savePrediction() {
   const name = document.getElementById('pred-name').value.trim();
   if(!name){ showToast('Please enter your name'); return; }
@@ -1380,6 +1409,7 @@ async function savePrediction() {
 
   recalcScores();
   await saveState();
+  updateEditState();
   renderMyPick();
   renderLeaderboard();
   document.getElementById('entrants-stat').textContent = state.predictions.length;
