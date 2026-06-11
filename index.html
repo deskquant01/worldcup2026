@@ -599,6 +599,46 @@
     color: var(--text-2);
     margin-bottom: 8px;
   }
+
+  /* ── Bracket prediction ── */
+  .pred-group-tabs { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:.75rem; }
+  .pred-group-tab {
+    padding:4px 11px; border-radius:20px; font-size:12px; font-weight:600;
+    cursor:pointer; border:1px solid var(--border-strong); background:white;
+    color:var(--text-2); font-family:inherit; transition:all 0.1s;
+  }
+  .pred-group-tab:hover:not(.active) { background:var(--off-white); }
+  .pred-group-tab.active { background:var(--pitch); color:white; border-color:var(--pitch); }
+  .team-chips { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:.5rem; }
+  .team-chip {
+    padding:3px 10px; border-radius:20px; font-size:12px; font-weight:500;
+    cursor:pointer; border:1px solid var(--border-strong); background:white;
+    color:var(--text); transition:all 0.1s; user-select:none;
+  }
+  .team-chip:hover:not(.selected) { background:var(--off-white); }
+  .team-chip.selected { background:var(--pitch); color:white; border-color:var(--pitch); }
+  .match-pick-row {
+    display:flex; align-items:center; gap:7px; padding:7px 0;
+    border-bottom:1px solid var(--border); font-size:13px;
+  }
+  .match-pick-row:last-child { border-bottom:none; }
+  .pick-team { flex:1; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+  .pick-team.right { text-align:right; }
+  .pick-score {
+    width:34px; padding:4px 5px; border:1px solid var(--border-strong);
+    border-radius:6px; font-size:14px; font-weight:600; text-align:center; font-family:inherit;
+  }
+  .pick-score:focus { outline:none; border-color:var(--pitch); }
+  .pick-score:disabled { background:var(--surface-2); color:var(--text-3); border-color:var(--border); }
+  .pick-vsep { color:var(--text-3); font-size:11px; flex-shrink:0; }
+  .pick-played { font-size:11px; color:var(--text-3); padding:2px 6px; background:var(--surface-2); border-radius:4px; white-space:nowrap; flex-shrink:0; }
+  .ko-pick-section { margin-bottom:1.25rem; }
+  .ko-pick-header {
+    font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--text-2); margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;
+  }
+  .ko-pts { font-family:'Bebas Neue',sans-serif; font-size:1rem; color:var(--gold); margin-left:5px; }
+  .ko-count { font-weight:400; color:var(--text-3); }
 </style>
 </head>
 <body>
@@ -655,61 +695,63 @@
   <div class="container">
     <div class="predict-layout">
       <div>
-        <div class="section-title">Make your prediction</div>
+        <div class="section-title">Bracket challenge</div>
+
+        <!-- Identity & bonus picks -->
         <div class="card" style="margin-bottom:1rem;">
+          <div class="card-title">Your details</div>
           <div class="form-group">
             <label class="form-label">Your name</label>
             <input type="text" id="pred-name" class="form-input" placeholder="e.g. Haoran" />
           </div>
           <div class="form-group">
-            <label class="form-label">🏆 Champion</label>
-            <div class="select-wrap">
-              <select id="pred-champion" class="form-select"></select>
-            </div>
+            <label class="form-label">⚡ Dark horse — reaches QF or better (8pts)</label>
+            <div class="select-wrap"><select id="pred-dark" class="form-select"></select></div>
           </div>
           <div class="form-group">
-            <label class="form-label">🥈 Runner-up</label>
-            <div class="select-wrap">
-              <select id="pred-runner" class="form-select"></select>
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">🥉 Third place</label>
-            <div class="select-wrap">
-              <select id="pred-third" class="form-select"></select>
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">⚡ Dark horse (reaches QF or better)</label>
-            <div class="select-wrap">
-              <select id="pred-dark" class="form-select"></select>
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">👟 Top scorer</label>
+            <label class="form-label">👟 Top scorer (10pts)</label>
             <input type="text" id="pred-scorer" class="form-input" placeholder="e.g. Mbappé" />
           </div>
-          <div class="form-group">
-            <label class="form-label">Total goals scored in tournament</label>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label">Total goals — within ±5 → 5pts · exact → 10pts</label>
             <input type="number" id="pred-goals" class="form-input" placeholder="e.g. 164" min="1" max="300" />
           </div>
-          <button class="btn btn-primary" onclick="savePrediction()">Save prediction</button>
         </div>
+
+        <!-- Group stage predictions -->
+        <div class="card" style="margin-bottom:1rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;">
+            <div class="card-title" style="margin-bottom:0;">Group stage predictions</div>
+            <div style="font-size:11px;color:var(--text-3);">1pt result · +2pt exact score</div>
+          </div>
+          <div class="pred-group-tabs" id="pred-group-tabs"></div>
+          <div id="pred-group-content"></div>
+        </div>
+
+        <!-- Knockout bracket picks -->
+        <div class="card" style="margin-bottom:1rem;">
+          <div class="card-title" style="margin-bottom:.75rem;">Knockout bracket predictions</div>
+          <div id="pred-knockout-content"></div>
+        </div>
+
+        <button class="btn btn-primary" onclick="savePrediction()" style="margin-bottom:1rem;">Save all predictions ⚽</button>
+
         <div class="share-box">
-          <p>Share this page with colleagues so they can add their own predictions:</p>
-          <div class="share-url" id="share-url">Open this file in a browser and copy the URL</div>
-          <button class="btn btn-secondary" onclick="copyUrl()" style="font-size:12px; padding:7px 14px;">Copy link</button>
+          <p>Share with colleagues so they can add their own predictions:</p>
+          <div class="share-url" id="share-url">Open in browser and copy the URL</div>
+          <button class="btn btn-secondary" onclick="copyUrl()" style="font-size:12px;padding:7px 14px;">Copy link</button>
         </div>
       </div>
+
       <div>
         <div class="scoring-box">
           <h3>How points are scored</h3>
-          <div class="scoring-row"><span>Correct group stage result (W/D/L)</span><span class="scoring-pts">1</span></div>
-          <div class="scoring-row"><span>Correct exact scoreline</span><span class="scoring-pts">3</span></div>
-          <div class="scoring-row"><span>Correct Round of 32 winner</span><span class="scoring-pts">2</span></div>
-          <div class="scoring-row"><span>Correct Round of 16 winner</span><span class="scoring-pts">3</span></div>
-          <div class="scoring-row"><span>Correct quarter-final winner</span><span class="scoring-pts">4</span></div>
-          <div class="scoring-row"><span>Correct semi-final winner</span><span class="scoring-pts">5</span></div>
+          <div class="scoring-row"><span>Group result (W/D/L)</span><span class="scoring-pts">1</span></div>
+          <div class="scoring-row"><span>Exact group scoreline bonus</span><span class="scoring-pts">+2</span></div>
+          <div class="scoring-row"><span>Round of 32 winner</span><span class="scoring-pts">2</span></div>
+          <div class="scoring-row"><span>Round of 16 winner</span><span class="scoring-pts">3</span></div>
+          <div class="scoring-row"><span>Quarter-final winner</span><span class="scoring-pts">4</span></div>
+          <div class="scoring-row"><span>Semi-final winner</span><span class="scoring-pts">5</span></div>
           <div class="scoring-row"><span>Correct third place</span><span class="scoring-pts">5</span></div>
           <div class="scoring-row"><span>Correct runner-up</span><span class="scoring-pts">7</span></div>
           <div class="scoring-row"><span>Correct champion</span><span class="scoring-pts">15</span></div>
@@ -719,8 +761,8 @@
           <div class="scoring-row"><span>Total goals exact</span><span class="scoring-pts">10</span></div>
         </div>
         <div class="card" style="margin-top:1rem;">
-          <div class="card-title">Your current pick</div>
-          <div id="my-pick-display" style="font-size:13px; color:var(--text-3);">No prediction saved yet.</div>
+          <div class="card-title">Your saved prediction</div>
+          <div id="my-pick-display" style="font-size:13px;color:var(--text-3);">No prediction saved yet.</div>
         </div>
       </div>
     </div>
@@ -971,15 +1013,11 @@ async function showPage(name, el) {
     await refreshFromCloud();
     const storedName = localStorage.getItem('wc2026_myname') || '';
     if (storedName) document.getElementById('pred-name').value = storedName;
+    // Reset ko selections then fill from saved prediction
+    for(const r of ['r32','r16','qf','sf']) koSelections[r] = new Set();
+    buildPredictUI();
     const saved = state.predictions.find(p => p.name === storedName);
-    if (saved) {
-      if (saved.champion) document.getElementById('pred-champion').value = saved.champion;
-      if (saved.runner)   document.getElementById('pred-runner').value   = saved.runner;
-      if (saved.third)    document.getElementById('pred-third').value    = saved.third;
-      if (saved.dark)     document.getElementById('pred-dark').value     = saved.dark;
-      if (saved.scorer)   document.getElementById('pred-scorer').value   = saved.scorer;
-      if (saved.goals)    document.getElementById('pred-goals').value    = saved.goals;
-    }
+    if (saved) fillPredictForm(saved);
     renderMyPick();
   }
 }
@@ -1075,38 +1113,162 @@ function renderKnockout() {
 }
 
 // ── Predict ──
+let koSelections = { r32: new Set(), r16: new Set(), qf: new Set(), sf: new Set() };
+
 function buildSelects() {
+  const opts = '<option value="">— pick a team —</option>' + ALL_TEAMS.map(t=>`<option value="${t}">${t}</option>`).join('');
   ['pred-champion','pred-runner','pred-third','pred-dark'].forEach(id=>{
     const sel = document.getElementById(id);
-    sel.innerHTML = '<option value="">— pick a team —</option>'+ALL_TEAMS.map(t=>`<option value="${t}">${t}</option>`).join('');
+    if (sel) sel.innerHTML = opts;
   });
 }
 
-async function savePrediction() {
-  // Capture all form values BEFORE any async work
-  const name     = document.getElementById('pred-name').value.trim();
-  const champion = document.getElementById('pred-champion').value;
-  const runner   = document.getElementById('pred-runner').value;
-  const third    = document.getElementById('pred-third').value;
-  const dark     = document.getElementById('pred-dark').value;
-  const scorer   = document.getElementById('pred-scorer').value.trim();
-  const goals    = parseInt(document.getElementById('pred-goals').value) || null;
+function buildPredictUI() {
+  buildGroupTabsUI();
+  buildKnockoutPicksUI();
+}
 
-  if(!name)    { showToast('Please enter your name'); return; }
-  if(!champion){ showToast('Please pick a champion'); return; }
+function buildGroupTabsUI() {
+  const tabs = document.getElementById('pred-group-tabs');
+  if (!tabs) return;
+  tabs.innerHTML = Object.keys(GROUPS_DATA).map((l,i)=>
+    `<button class="pred-group-tab${i===0?' active':''}" onclick="switchGroupTab('${l}',this)">${l}</button>`
+  ).join('');
+  switchGroupTab('A', tabs.querySelector('.active'));
+}
+
+function switchGroupTab(letter, btn) {
+  document.querySelectorAll('.pred-group-tab').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const teams   = GROUPS_DATA[letter].teams;
+  const actual  = state.groups[letter] || [];
+  const name    = document.getElementById('pred-name')?.value.trim() || localStorage.getItem('wc2026_myname') || '';
+  const saved   = state.predictions.find(p=>p.name===name);
+  const picks   = saved?.groupPicks?.[letter] || {};
+  const rows = [];
+  for(let i1=0;i1<4;i1++) for(let i2=i1+1;i2<4;i2++){
+    const key = `${i1}_${i2}`;
+    const ar  = actual.find(r=>r[0]===i1&&r[1]===i2);
+    const pk  = picks[key];
+    rows.push(`<div class="match-pick-row">
+      <span class="pick-team">${teams[i1].flag} ${teams[i1].name}</span>
+      <input type="number" class="pick-score" id="gp_${letter}_${i1}_${i2}_s1"
+        value="${pk!=null?pk[0]:''}" ${ar?'disabled':''} min="0" max="20" placeholder="—">
+      <span class="pick-vsep">–</span>
+      <input type="number" class="pick-score" id="gp_${letter}_${i1}_${i2}_s2"
+        value="${pk!=null?pk[1]:''}" ${ar?'disabled':''} min="0" max="20" placeholder="—">
+      <span class="pick-team right">${teams[i2].name} ${teams[i2].flag}</span>
+      ${ar?`<span class="pick-played">Played: ${ar[2]}–${ar[3]}</span>`:''}
+    </div>`);
+  }
+  document.getElementById('pred-group-content').innerHTML = rows.join('');
+}
+
+function buildKnockoutPicksUI() {
+  const el = document.getElementById('pred-knockout-content');
+  if (!el) return;
+  const rounds = [
+    { id:'r32', label:'Round of 32', pts:2, max:16 },
+    { id:'r16', label:'Round of 16', pts:3, max:8 },
+    { id:'qf',  label:'Quarter-finals', pts:4, max:4 },
+    { id:'sf',  label:'Semi-finals', pts:5, max:2 },
+  ];
+  let html = '';
+  for(const r of rounds){
+    const sel = koSelections[r.id];
+    html += `<div class="ko-pick-section">
+      <div class="ko-pick-header">
+        <span>${r.label} <span class="ko-pts">${r.pts}pts</span> each correct</span>
+        <span class="ko-count" id="kocnt_${r.id}">${sel.size}/${r.max} picked</span>
+      </div>
+      <div class="team-chips">${ALL_TEAMS.map(t=>`<span class="team-chip${sel.has(t)?' selected':''}"
+        onclick="toggleChip('${r.id}','${t.replace(/'/g,"\\'").replace(/"/g,'&quot;')}',this,${r.max})">${escHtml(t)}</span>`).join('')}
+      </div>
+    </div>`;
+  }
+  // Podium picks
+  const opts = '<option value="">— pick a team —</option>'+ALL_TEAMS.map(t=>`<option value="${t}">${t}</option>`).join('');
+  html += `<div class="ko-pick-section">
+    <div class="ko-pick-header">Podium picks</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:4px;">
+      <div><div class="form-label" style="margin-bottom:4px;">🏆 Champion (15pts)</div>
+        <div class="select-wrap"><select id="pred-champion" class="form-select">${opts}</select></div></div>
+      <div><div class="form-label" style="margin-bottom:4px;">🥈 Runner-up (7pts)</div>
+        <div class="select-wrap"><select id="pred-runner" class="form-select">${opts}</select></div></div>
+      <div><div class="form-label" style="margin-bottom:4px;">🥉 Third place (5pts)</div>
+        <div class="select-wrap"><select id="pred-third" class="form-select">${opts}</select></div></div>
+    </div>
+  </div>`;
+  el.innerHTML = html;
+}
+
+function toggleChip(roundId, team, el, max) {
+  const set = koSelections[roundId];
+  if(set.has(team)){ set.delete(team); el.classList.remove('selected'); }
+  else {
+    if(set.size>=max){ showToast(`Max ${max} picks for this round`); return; }
+    set.add(team); el.classList.add('selected');
+  }
+  document.getElementById(`kocnt_${roundId}`).textContent = `${set.size}/${max} picked`;
+}
+
+function fillPredictForm(saved) {
+  if(!saved) return;
+  if(saved.dark)    { const s=document.getElementById('pred-dark');    if(s) s.value=saved.dark; }
+  if(saved.scorer)  document.getElementById('pred-scorer').value = saved.scorer;
+  if(saved.goals)   document.getElementById('pred-goals').value  = saved.goals;
+  // Restore ko selections then rebuild UI
+  for(const r of ['r32','r16','qf','sf'])
+    koSelections[r] = new Set(saved.knockoutPicks?.[r] || []);
+  buildKnockoutPicksUI();
+  // Set podium selects after UI rebuild
+  if(saved.champion){ const s=document.getElementById('pred-champion'); if(s) s.value=saved.champion; }
+  if(saved.runner)  { const s=document.getElementById('pred-runner');   if(s) s.value=saved.runner; }
+  if(saved.third)   { const s=document.getElementById('pred-third');    if(s) s.value=saved.third; }
+  // Rebuild group tab to show saved picks
+  const activeTab = document.querySelector('.pred-group-tab.active');
+  if(activeTab) switchGroupTab(activeTab.textContent, activeTab);
+}
+
+function collectGroupPicks() {
+  const groupPicks = {};
+  for(const letter of Object.keys(GROUPS_DATA)){
+    const picks = {};
+    for(let i1=0;i1<4;i1++) for(let i2=i1+1;i2<4;i2++){
+      const e1 = document.getElementById(`gp_${letter}_${i1}_${i2}_s1`);
+      const e2 = document.getElementById(`gp_${letter}_${i1}_${i2}_s2`);
+      if(!e1||!e2||e1.disabled) continue; // disabled = already played, skip
+      if(e1.value!==''&&e2.value!=='') picks[`${i1}_${i2}`]=[parseInt(e1.value),parseInt(e2.value)];
+    }
+    if(Object.keys(picks).length) groupPicks[letter]=picks;
+  }
+  return groupPicks;
+}
+
+async function savePrediction() {
+  const name = document.getElementById('pred-name').value.trim();
+  if(!name){ showToast('Please enter your name'); return; }
+
+  const dark    = document.getElementById('pred-dark')?.value    || '';
+  const scorer  = document.getElementById('pred-scorer').value.trim();
+  const goals   = parseInt(document.getElementById('pred-goals').value) || null;
+  const champion= document.getElementById('pred-champion')?.value || '';
+  const runner  = document.getElementById('pred-runner')?.value   || '';
+  const third   = document.getElementById('pred-third')?.value    || '';
+
+  const groupPicks    = collectGroupPicks();
+  const knockoutPicks = {};
+  for(const r of ['r32','r16','qf','sf']) knockoutPicks[r] = [...koSelections[r]];
 
   localStorage.setItem('wc2026_myname', name);
-
-  // Refresh so we merge on top of the latest remote state
   await refreshFromCloud();
 
-  // Upsert this person's prediction
-  state.predictions = state.predictions.filter(p => p.name !== name);
-  state.predictions.push({ name, champion, runner, third, dark, scorer, goals, savedAt: Date.now() });
+  state.predictions = state.predictions.filter(p=>p.name!==name);
+  state.predictions.push({ name, champion, runner, third, dark, scorer, goals,
+    groupPicks, knockoutPicks, savedAt: Date.now() });
 
   recalcScores();
   await saveState();
-
   renderMyPick();
   renderLeaderboard();
   document.getElementById('entrants-stat').textContent = state.predictions.length;
@@ -1114,40 +1276,102 @@ async function savePrediction() {
 }
 
 function renderMyPick() {
-  const name = document.getElementById('pred-name').value.trim();
+  const name = document.getElementById('pred-name')?.value.trim() || '';
   const saved = state.predictions.find(p=>p.name===name);
   const el = document.getElementById('my-pick-display');
+  if(!el) return;
   if(!saved){ el.innerHTML='<span style="color:var(--text-3)">No prediction saved yet.</span>'; return; }
+  const gTotal = Object.values(saved.groupPicks||{}).reduce((s,g)=>s+Object.keys(g).length,0);
+  const koTotal= ['r32','r16','qf','sf'].reduce((s,r)=>s+(saved.knockoutPicks?.[r]?.length||0),0);
   el.innerHTML=`
-    <div style="margin-bottom:8px"><span class="pick-tag">🏆 ${escHtml(saved.champion)}</span>${saved.runner?`<span class="pick-tag">🥈 ${escHtml(saved.runner)}</span>`:''}</div>
+    <div style="margin-bottom:8px">
+      ${saved.champion?`<span class="pick-tag">🏆 ${escHtml(saved.champion)}</span>`:''}
+      ${saved.runner?`<span class="pick-tag">🥈 ${escHtml(saved.runner)}</span>`:''}
+      ${saved.third?`<span class="pick-tag">🥉 ${escHtml(saved.third)}</span>`:''}
+    </div>
     ${saved.dark?`<div style="margin-bottom:6px"><span class="pick-tag dark">⚡ Dark horse: ${escHtml(saved.dark)}</span></div>`:''}
-    ${saved.scorer?`<div style="font-size:12px;color:var(--text-2)">Top scorer: ${escHtml(saved.scorer)}</div>`:''}
-    ${saved.goals?`<div style="font-size:12px;color:var(--text-2)">Goals prediction: ${saved.goals}</div>`:''}`;
+    ${saved.scorer?`<div style="font-size:12px;color:var(--text-2);margin-bottom:2px">👟 Top scorer: ${escHtml(saved.scorer)}</div>`:''}
+    ${saved.goals?`<div style="font-size:12px;color:var(--text-2);margin-bottom:2px">⚽ Goals: ${saved.goals}</div>`:''}
+    <div style="font-size:12px;color:var(--text-3);margin-top:4px;">
+      ${gTotal} group match${gTotal!==1?'es':''} predicted ·
+      ${koTotal} knockout pick${koTotal!==1?'s':''}
+    </div>`;
 }
 
 // ── Scoring ──
+function matchWinner(m) {
+  if(m.s1==null) return null;
+  if(m.s1>m.s2) return m.t1;
+  if(m.s2>m.s1) return m.t2;
+  return m.pens==='1'?m.t1:m.t2;
+}
+
 function recalcScores() {
-  const finalRound = state.knockout.find(r=>r.id==='final');
-  const fm = finalRound?.matches[0];
-  const champion  = fm?.s1 != null ? (fm.s1>fm.s2?fm.t1:fm.t2) : null;
-  const runnerUp  = fm?.s1 != null ? (fm.s1>fm.s2?fm.t2:fm.t1) : null;
-  const tpMatch   = state.knockout.find(r=>r.id==='tp')?.matches[0];
-  const thirdPlace= tpMatch?.s1 != null ? (tpMatch.s1>tpMatch.s2?tpMatch.t1:tpMatch.t2) : null;
+  const finalRound  = state.knockout.find(r=>r.id==='final');
+  const fm          = finalRound?.matches[0];
+  const champion    = fm?.s1 != null ? matchWinner(fm) : null;
+  const runnerUp    = fm?.s1 != null ? (matchWinner(fm)===fm.t1?fm.t2:fm.t1) : null;
+  const tpMatch     = state.knockout.find(r=>r.id==='tp')?.matches[0];
+  const thirdPlace  = tpMatch?.s1 != null ? matchWinner(tpMatch) : null;
+
+  // Actual knockout winners per round (set of team names)
+  const koWinners = {};
+  for(const round of state.knockout){
+    koWinners[round.id] = new Set(round.matches.filter(m=>m.s1!=null).map(matchWinner).filter(Boolean));
+  }
+
+  // QF+ teams (for dark horse scoring)
+  const qfTeams = new Set([
+    ...Array.from(koWinners['qf']||[]),
+    ...Array.from(koWinners['sf']||[]),
+    ...(champion?[champion]:[]), ...(runnerUp?[runnerUp]:[]), ...(thirdPlace?[thirdPlace]:[])
+  ]);
+  state.knockout.find(r=>r.id==='qf')?.matches.forEach(m=>{
+    if(m.t1!=='TBD') qfTeams.add(m.t1);
+    if(m.t2!=='TBD') qfTeams.add(m.t2);
+  });
 
   let totalGoals = 0;
   Object.values(state.groups).forEach(res=>res.forEach(r=>{ totalGoals+=r[2]+r[3]; }));
-  state.knockout.forEach(round=>round.matches.forEach(m=>{ if(m.s1 != null) totalGoals+=m.s1+m.s2; }));
-
-  const qfTeams = new Set();
-  state.knockout.find(r=>r.id==='qf')?.matches.forEach(m=>{ if(m.t1!=='TBD') qfTeams.add(m.t1); if(m.t2!=='TBD') qfTeams.add(m.t2); });
+  state.knockout.forEach(round=>round.matches.forEach(m=>{ if(m.s1!=null) totalGoals+=m.s1+m.s2; }));
 
   state.predictions.forEach(p=>{
     let pts=0; const breakdown=[];
-    if(champion && p.champion===champion){ pts+=15; breakdown.push({label:'Champion',pts:15}); }
-    if(runnerUp && p.runner===runnerUp){ pts+=7; breakdown.push({label:'Runner-up',pts:7}); }
-    if(thirdPlace && p.third===thirdPlace){ pts+=5; breakdown.push({label:'Third place',pts:5}); }
+
+    // Group picks
+    let gPts=0;
+    for(const [letter, picks] of Object.entries(p.groupPicks||{})){
+      const actual = state.groups[letter]||[];
+      for(const [key,[ps1,ps2]] of Object.entries(picks)){
+        const [i1,i2]=key.split('_').map(Number);
+        const ar=actual.find(r=>r[0]===i1&&r[1]===i2);
+        if(!ar) continue;
+        const [,,as1,as2]=ar;
+        const pRes=ps1>ps2?1:ps1<ps2?-1:0, aRes=as1>as2?1:as1<as2?-1:0;
+        if(pRes===aRes){ gPts+=1; if(ps1===as1&&ps2===as2) gPts+=2; }
+      }
+    }
+    if(gPts){ pts+=gPts; breakdown.push({label:'Group picks',pts:gPts}); }
+
+    // Knockout round picks
+    for(const {id,pts:pEach,label} of [
+      {id:'r32',pts:2,label:'R32'},{id:'r16',pts:3,label:'R16'},
+      {id:'qf',pts:4,label:'QF'},{id:'sf',pts:5,label:'SF'}
+    ]){
+      const correct=(p.knockoutPicks?.[id]||[]).filter(t=>(koWinners[id]||new Set()).has(t)).length;
+      if(correct){ const e=correct*pEach; pts+=e; breakdown.push({label:`${label} (${correct}✓)`,pts:e}); }
+    }
+
+    // Podium
+    if(champion   && p.champion===champion) { pts+=15; breakdown.push({label:'Champion',pts:15}); }
+    if(runnerUp   && p.runner===runnerUp)   { pts+=7;  breakdown.push({label:'Runner-up',pts:7}); }
+    if(thirdPlace && p.third===thirdPlace)  { pts+=5;  breakdown.push({label:'Third place',pts:5}); }
+
+    // Dark horse
     if(p.dark && qfTeams.has(p.dark)){ pts+=8; breakdown.push({label:'Dark horse QF+',pts:8}); }
-    if(p.goals!==null && totalGoals>0){
+
+    // Goals
+    if(p.goals!=null && totalGoals>0){
       const diff=Math.abs(p.goals-totalGoals);
       if(diff===0){ pts+=10; breakdown.push({label:'Exact goals',pts:10}); }
       else if(diff<=5){ pts+=5; breakdown.push({label:'Goals ±5',pts:5}); }
