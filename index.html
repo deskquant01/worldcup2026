@@ -655,6 +655,7 @@
   @media(max-width:640px){.bk-cols{grid-template-columns:repeat(2,1fr);}}
   .bk-col{border:1px solid var(--border);border-radius:6px;overflow:hidden;transition:border-color .1s,background .1s;}
   .bk-col.over{border-color:var(--pitch);background:rgba(0,90,50,.04);}
+  .bk-col-locked{background:var(--surface-2);opacity:.75;}
   .bk-col-head{background:var(--off-white);padding:4px 7px;font-size:10.5px;font-weight:600;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);}
   .bk-pts-b{font-family:'Bebas Neue',sans-serif;font-size:.85rem;color:var(--gold);}
   .bk-cnt{color:var(--text-3);font-weight:400;}
@@ -964,13 +965,18 @@ const GROUPS_DATA = {
 };
 
 const KNOCKOUT_ROUNDS = [
-  { id:'r32', name:'Round of 32', date:'28 Jun – 1 Jul', matches: Array.from({length:16},(_,i)=>({id:`r32_${i}`,t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false})) },
-  { id:'r16', name:'Round of 16', date:'3 – 6 Jul', matches: Array.from({length:8},(_,i)=>({id:`r16_${i}`,t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false})) },
-  { id:'qf',  name:'Quarter-finals', date:'9 – 10 Jul', matches: Array.from({length:4},(_,i)=>({id:`qf_${i}`,t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false})) },
-  { id:'sf',  name:'Semi-finals', date:'13 – 14 Jul', matches: Array.from({length:2},(_,i)=>({id:`sf_${i}`,t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false})) },
-  { id:'tp',  name:'Third place', date:'18 Jul', matches: [{id:'tp_0',t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false}] },
-  { id:'final',name:'Final', date:'19 Jul · MetLife Stadium', matches: [{id:'final_0',t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false}] }
+  { id:'r32', name:'Round of 32',    date:'28 Jun – 1 Jul',          lockDate:'2026-06-28', matches: Array.from({length:16},(_,i)=>({id:`r32_${i}`,t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false})) },
+  { id:'r16', name:'Round of 16',    date:'3 – 6 Jul',               lockDate:'2026-07-03', matches: Array.from({length:8},(_,i)=>({id:`r16_${i}`,t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false})) },
+  { id:'qf',  name:'Quarter-finals', date:'9 – 10 Jul',              lockDate:'2026-07-09', matches: Array.from({length:4},(_,i)=>({id:`qf_${i}`,t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false})) },
+  { id:'sf',  name:'Semi-finals',    date:'13 – 14 Jul',             lockDate:'2026-07-13', matches: Array.from({length:2},(_,i)=>({id:`sf_${i}`,t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false})) },
+  { id:'tp',  name:'Third place',    date:'18 Jul',                   matches: [{id:'tp_0',t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false}] },
+  { id:'final',name:'Final',         date:'19 Jul · MetLife Stadium', matches: [{id:'final_0',t1:'TBD',t2:'TBD',s1:null,s2:null,pens:false}] }
 ];
+
+function isRoundLocked(roundId) {
+  const r = KNOCKOUT_ROUNDS.find(x => x.id === roundId);
+  return r?.lockDate ? new Date() >= new Date(r.lockDate) : false;
+}
 
 const ALL_TEAMS = Object.values(GROUPS_DATA).flatMap(g=>g.teams.map(t=>t.name));
 
@@ -1191,7 +1197,7 @@ function switchGroupTab(letter, btn) {
       <input type="number" class="pick-score" id="gp_${letter}_${i1}_${i2}_s2"
         value="${pk!=null?pk[1]:''}" ${ar?'disabled':''} min="0" max="20" placeholder="—">
       <span class="pick-team right">${teams[i2].name} ${teams[i2].flag}</span>
-      ${ar?`<span class="pick-played">Played: ${ar[2]}–${ar[3]}</span>`:''}
+      ${ar ? `<span class="pick-played">🔒 ${ar[2]}–${ar[3]}</span>` : ''}
     </div>`);
   }
   document.getElementById('pred-group-content').innerHTML = rows.join('');
@@ -1217,6 +1223,12 @@ function buildBracketPicksUI() {
         </div>
       </div>`;
   }
+  // Lock podium selects once the knockout phase has begun
+  const podiumLocked = isRoundLocked('r32');
+  ['pred-champion','pred-runner','pred-third'].forEach(id => {
+    const s = document.getElementById(id);
+    if (s) s.disabled = podiumLocked;
+  });
   refreshBracketInner();
 }
 
@@ -1229,23 +1241,27 @@ function refreshBracketInner() {
     {id:'qf',  label:'Quarter-finals', short:'QF',  pts:4, max:4},
     {id:'sf',  label:'Semi-finals',    short:'SF',  pts:5, max:2},
   ];
+  const allLocked = rounds.every(r => isRoundLocked(r.id));
 
-  // Pool chips — placed (in any round) are dimmed
+  // Pool chips
   const poolHtml = ALL_TEAMS.map(t => {
     const placed = rounds.some(r => koSelections[r.id].has(t));
-    const isSel  = t === bracketSelectedTeam;
+    const isSel  = !allLocked && t === bracketSelectedTeam;
+    const drag   = !allLocked ? `draggable="true" ondragstart="bracketDragStart(event)"` : '';
+    const click  = !allLocked ? `onclick="bracketPoolClick(event)"` : '';
     return `<div class="bk-chip${placed?' bk-placed':''}${isSel?' bk-sel':''}"
-      draggable="true" data-team="${escHtml(t)}"
-      ondragstart="bracketDragStart(event)" onclick="bracketPoolClick(event)">${escHtml(t)}</div>`;
+      data-team="${escHtml(t)}" ${drag} ${click}>${escHtml(t)}</div>`;
   }).join('');
 
-  // Round-picker bar (shown when a team is tapped)
-  const pickerHtml = bracketSelectedTeam ? (() => {
+  // Picker bar (shown when a team is tapped; only unlocked rounds shown as active)
+  const pickerHtml = bracketSelectedTeam && !allLocked ? (() => {
     const btns = rounds.map(r => {
-      const has  = koSelections[r.id].has(bracketSelectedTeam);
-      const full = !has && koSelections[r.id].size >= r.max;
-      return `<button class="bk-pick-btn${has?' bk-has':''}" ${full?'disabled':''}
-        onclick="bracketAddFromPicker('${r.id}',${r.max})">${r.short}${has?' ✓':''}</button>`;
+      const locked = isRoundLocked(r.id);
+      const has    = koSelections[r.id].has(bracketSelectedTeam);
+      const full   = !has && koSelections[r.id].size >= r.max;
+      return `<button class="bk-pick-btn${has?' bk-has':''}" ${locked||full?'disabled':''}
+        onclick="bracketAddFromPicker('${r.id}',${r.max})"
+        title="${locked?'Locked — round has started':''}">${r.short}${locked?' 🔒':has?' ✓':''}</button>`;
     }).join('');
     return `<div class="bk-picker">
       <span style="color:var(--text-2);font-size:11.5px;">Add <strong>${escHtml(bracketSelectedTeam)}</strong> to:</span>
@@ -1256,31 +1272,35 @@ function refreshBracketInner() {
 
   // Round columns
   const colsHtml = rounds.map(r => {
-    const sel   = koSelections[r.id];
-    const picks = [...sel].map(t =>
+    const locked = isRoundLocked(r.id);
+    const sel    = koSelections[r.id];
+    const picks  = [...sel].map(t =>
       `<div class="bk-pick" data-round="${r.id}" data-team="${escHtml(t)}">
         <span>${escHtml(t)}</span>
-        <span class="bk-pick-x" onclick="bracketRemove(this)">✕</span>
+        ${locked ? '' : `<span class="bk-pick-x" onclick="bracketRemove(this)">✕</span>`}
       </div>`).join('');
-    const rem  = r.max - sel.size;
-    const show = Math.min(rem, r.id==='r32'||r.id==='r16' ? 3 : rem);
-    const more = rem - show > 0 ? `<div class="bk-more">+${rem - show} more slot${rem-show>1?'s':''}</div>` : '';
-    const empties = Array(show).fill('<div class="bk-slot-empty"></div>').join('');
-    return `<div class="bk-col" id="bcol_${r.id}"
-      ondragover="event.preventDefault();this.classList.add('over')"
-      ondragleave="this.classList.remove('over')"
-      ondrop="bracketDrop(event,'${r.id}',${r.max})">
+    const rem      = r.max - sel.size;
+    const show     = locked ? 0 : Math.min(rem, r.id==='r32'||r.id==='r16' ? 3 : rem);
+    const more     = !locked && rem - show > 0 ? `<div class="bk-more">+${rem-show} more slot${rem-show>1?'s':''}</div>` : '';
+    const empties  = Array(show).fill('<div class="bk-slot-empty"></div>').join('');
+    const dropAttrs = locked ? '' :
+      `ondragover="event.preventDefault();this.classList.add('over')"
+       ondragleave="this.classList.remove('over')"
+       ondrop="bracketDrop(event,'${r.id}',${r.max})"`;
+    return `<div class="bk-col${locked?' bk-col-locked':''}" id="bcol_${r.id}" ${dropAttrs}>
       <div class="bk-col-head">
-        <span>${r.short}</span>
+        <span>${r.short}${locked?' 🔒':''}</span>
         <span><span class="bk-pts-b">${r.pts}pt</span>&thinsp;<span class="bk-cnt">${sel.size}/${r.max}</span></span>
       </div>
-      <div class="bk-slots">${picks}${empties}${more}</div>
+      <div class="bk-slots">${picks}${empties}${more}${locked&&!sel.size?`<div class="bk-more" style="padding:8px 0;">No picks</div>`:''}</div>
     </div>`;
   }).join('');
 
-  el.innerHTML = `<p style="font-size:11.5px;color:var(--text-3);margin:0 0 8px;">
-    Drag teams into a round — or tap a team then choose which round.
-  </p>
+  const hint = allLocked
+    ? `<p style="font-size:11.5px;color:var(--text-3);margin:0 0 8px;">🔒 Bracket picks are locked — the knockout phase has begun.</p>`
+    : `<p style="font-size:11.5px;color:var(--text-3);margin:0 0 8px;">Drag teams into a round — or tap a team then choose which round.</p>`;
+
+  el.innerHTML = `${hint}
   <div class="bk-pool">${poolHtml}</div>
   ${pickerHtml}
   <div class="bk-cols">${colsHtml}</div>`;
@@ -1295,6 +1315,7 @@ function bracketDragStart(event) {
 function bracketDrop(event, roundId, max) {
   event.preventDefault();
   document.getElementById('bcol_'+roundId)?.classList.remove('over');
+  if (isRoundLocked(roundId)) return;
   const team = dragTeam || event.dataTransfer.getData('text/plain');
   dragTeam = null;
   if (!team) return;
@@ -1307,6 +1328,7 @@ function bracketDrop(event, roundId, max) {
 
 function bracketRemove(xEl) {
   const pick = xEl.closest('.bk-pick');
+  if (isRoundLocked(pick.dataset.round)) return;
   koSelections[pick.dataset.round].delete(pick.dataset.team);
   refreshBracketInner();
 }
@@ -1319,6 +1341,7 @@ function bracketPoolClick(event) {
 
 function bracketAddFromPicker(roundId, max) {
   if (!bracketSelectedTeam) return;
+  if (isRoundLocked(roundId)) return;
   const sel = koSelections[roundId];
   if (sel.has(bracketSelectedTeam)) {
     sel.delete(bracketSelectedTeam);
