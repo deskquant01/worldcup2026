@@ -641,11 +641,9 @@
   .pb-slot.pb-champ{justify-content:center;text-align:center;background:linear-gradient(135deg,#fdf8ec,#fff9e6);border-color:var(--gold);}
   .pb-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;}
   .pb-hint{flex:1;font-size:10px;color:var(--text-3);font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .pb-match-hint{display:flex;flex-direction:column;align-items:flex-start;flex:1;overflow:hidden;gap:0;}
-  .pb-match-hint>span{font-size:9.5px;color:var(--text-3);font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:114px;line-height:1.4;}
-  .pb-match-hint>.pb-vs{font-size:8px;color:var(--text-3);opacity:.6;line-height:1.1;}
-  .pb-remove{cursor:pointer;opacity:.55;font-size:13px;line-height:1;padding:0 1px;flex-shrink:0;}
-  .pb-remove:hover{opacity:1;}
+  .pb-sel{flex:1;min-width:0;border:none;background:transparent;font-size:10.5px;cursor:pointer;color:inherit;outline:none;padding:0 2px;}
+  .pb-slot.pb-empty .pb-sel{color:var(--text-3);font-style:italic;font-size:9.5px;}
+  .pb-slot.pb-locked .pb-sel{cursor:not-allowed;}
 </style>
 </head>
 <body>
@@ -1052,8 +1050,7 @@ async function showPage(name, el) {
     await refreshFromCloud();
     const storedName = localStorage.getItem('wc2026_myname') || '';
     if (storedName) document.getElementById('pred-name').value = storedName;
-    // Reset bracket state and ko selections
-    bracketSelectedTeam = null;
+    // Reset ko selections
     for(const [r,n] of [['r32',16],['r16',8],['qf',4],['sf',2]]) koSelections[r] = Array(n).fill(null);
     buildPredictUI();
     const saved = state.predictions.find(p => p.name === storedName);
@@ -1261,8 +1258,6 @@ function drawPredBracketLines() {
 
 // ── Predict ──
 let koSelections = { r32: Array(16).fill(null), r16: Array(8).fill(null), qf: Array(4).fill(null), sf: Array(2).fill(null) };
-let dragTeam = null;
-let bracketSelectedTeam = null;
 
 function buildSelects() {
   const opts = '<option value="">— pick a team —</option>' + ALL_TEAMS.map(t=>`<option value="${t}">${t}</option>`).join('');
@@ -1351,6 +1346,49 @@ function buildBracketPicksUI() {
   renderPredBracket();
 }
 
+// ── Bracket eligibility helpers ─────────────────────────────────────────────
+function extractGroupCodes(label) {
+  return (label.match(/[A-L]/g) || []);
+}
+
+// Returns sorted array of team names eligible for a given bracket slot.
+// R32 slots use the official seedings; later rounds cascade from what's
+// already picked in their two parent slots.
+function getEligibleForSlot(rd, i) {
+  if (rd === 'r32') {
+    const s = R32_SLOTS[i];
+    const codes = [...new Set([...extractGroupCodes(s.t), ...extractGroupCodes(s.b)])];
+    return codes.flatMap(g => (GROUPS_DATA[g]?.teams || []).map(t => t.name));
+  }
+  const parentRd = { r16: 'r32', qf: 'r16', sf: 'qf' }[rd];
+  const p0 = koSelections[parentRd][i * 2];
+  const p1 = koSelections[parentRd][i * 2 + 1];
+  const e0 = p0 ? [p0] : getEligibleForSlot(parentRd, i * 2);
+  const e1 = p1 ? [p1] : getEligibleForSlot(parentRd, i * 2 + 1);
+  return [...new Set([...e0, ...e1])];
+}
+
+// Called by the inline <select> onchange — updates selection and clears any
+// downstream picks that are no longer reachable.
+function pbSelectTeam(rd, i, val) {
+  if (isRoundLocked(rd)) return;
+  koSelections[rd][i] = val || null;
+  cascadeClear(rd, i);
+  renderPredBracket();
+}
+
+function cascadeClear(rd, i) {
+  const next = { r32: 'r16', r16: 'qf', qf: 'sf' }[rd];
+  if (!next) return;
+  const ni = Math.floor(i / 2);
+  const cur = koSelections[next][ni];
+  if (!cur) return;
+  if (!getEligibleForSlot(next, ni).includes(cur)) {
+    koSelections[next][ni] = null;
+    cascadeClear(next, ni);
+  }
+}
+
 function renderPredBracket() {
   const el = document.getElementById('pred-bracket-inner');
   if (!el) return;
@@ -1360,57 +1398,23 @@ function renderPredBracket() {
   const totalH = 16 * SLOT;
   const allLocked = isRoundLocked('r32');
 
-  // Collect all placed teams to dim pool chips
-  const placedTeams = new Set();
-  for (const r of ['r32','r16','qf','sf']) koSelections[r].forEach(t => { if(t) placedTeams.add(t); });
-
-  // Pool chips
-  const poolHtml = ALL_TEAMS.map(t => {
-    const placed = placedTeams.has(t);
-    const isSel  = !allLocked && t === bracketSelectedTeam;
-    const drag   = !allLocked ? `draggable="true" ondragstart="pbDragStart(event)"` : '';
-    const click  = !allLocked ? `onclick="pbPoolClick(event)"` : '';
-    return `<div class="bk-chip${placed?' bk-placed':''}${isSel?' bk-sel':''}"
-      data-team="${escHtml(t)}" ${drag} ${click}>${escHtml(t)}</div>`;
-  }).join('');
-
-  // Picker bar
-  const pickerHtml = bracketSelectedTeam && !allLocked ? (() => {
-    const rounds = [{id:'r32',short:'R32',pts:2,n:16},{id:'r16',short:'R16',pts:3,n:8},{id:'qf',short:'QF',pts:4,n:4},{id:'sf',short:'SF',pts:5,n:2}];
-    const btns = rounds.map(r => {
-      const locked  = isRoundLocked(r.id);
-      const arr     = koSelections[r.id];
-      const hasIdx  = arr.indexOf(bracketSelectedTeam);
-      const has     = hasIdx !== -1;
-      const full    = !has && arr.filter(Boolean).length >= r.n;
-      return `<button class="bk-pick-btn${has?' bk-has':''}" ${locked||full?'disabled':''}
-        onclick="pbPickerAdd('${r.id}')"
-        title="${locked?'Locked':'full'}">${r.short}${locked?' 🔒':has?' ✓':''}</button>`;
-    }).join('');
-    return `<div class="bk-picker">
-      <span style="color:var(--text-2);font-size:11.5px;">Add <strong>${escHtml(bracketSelectedTeam)}</strong> to round:</span>
-      ${btns}
-      <button class="bk-pick-btn bk-cancel" onclick="bracketSelectedTeam=null;renderPredBracket()">✕</button>
-    </div>`;
-  })() : '';
-
   // Build bracket columns (R32 → R16 → QF → SF → Champion)
   const roundDefs = [
-    { id:'r32', label:'Round of 32 <span class="bk-pts-b">(2pt)</span>',    n:16 },
-    { id:'r16', label:'Round of 16 <span class="bk-pts-b">(3pt)</span>',    n:8  },
-    { id:'qf',  label:'Quarter-finals <span class="bk-pts-b">(4pt)</span>', n:4  },
-    { id:'sf',  label:'Semi-finals <span class="bk-pts-b">(5pt)</span>',    n:2  },
-    { id:'champ', label:'Champion',                                          n:1  },
+    { id:'r32',   label:'Round of 32 <span class="bk-pts-b">(2pt)</span>',    n:16 },
+    { id:'r16',   label:'Round of 16 <span class="bk-pts-b">(3pt)</span>',    n:8  },
+    { id:'qf',    label:'Quarter-finals <span class="bk-pts-b">(4pt)</span>', n:4  },
+    { id:'sf',    label:'Semi-finals <span class="bk-pts-b">(5pt)</span>',    n:2  },
+    { id:'champ', label:'Champion',                                            n:1  },
   ];
 
   let labelsHtml = '', colsHtml = '';
   for (const rd of roundDefs) {
-    const slotH  = totalH / rd.n;
+    const slotH = totalH / rd.n;
     labelsHtml += `<div class="kb-round-label" style="width:${COL}px;">${rd.label}</div>`;
 
     let slots = '';
     for (let i = 0; i < rd.n; i++) {
-      let inner, cellAttrs = '';
+      let inner;
       if (rd.id === 'champ') {
         const champ = document.getElementById('pred-champion')?.value || '';
         inner = `<div class="pb-slot pb-champ${champ?'':' pb-empty'} pb-locked" id="pb-m-champ-0">
@@ -1419,44 +1423,37 @@ function renderPredBracket() {
             : `<span class="pb-hint" style="text-align:center;width:100%;">🏆 pick below</span>`}
         </div>`;
       } else {
-        const locked = isRoundLocked(rd.id);
-        const team   = koSelections[rd.id][i];
-        const overFn = `document.getElementById('pb-m-${rd.id}-${i}').classList.add('pb-over')`;
-        const outFn  = `document.getElementById('pb-m-${rd.id}-${i}').classList.remove('pb-over')`;
-        if (!locked) cellAttrs =
-          `ondragover="event.preventDefault();${overFn}"
-           ondragleave="${outFn}"
-           ondrop="pbDrop(event,'${rd.id}',${i})"`;
-        const clickAttr = locked ? '' : `onclick="pbSlotClick('${rd.id}',${i})"`;
-        if (team) {
-          inner = `<div class="pb-slot" id="pb-m-${rd.id}-${i}" ${clickAttr}>
-            <span class="pb-name">${escHtml(team)}</span>
-            ${locked ? '' : `<span class="pb-remove" onclick="event.stopPropagation();pbRemove('${rd.id}',${i})">×</span>`}
-          </div>`;
-        } else if (rd.id === 'r32') {
+        const locked   = isRoundLocked(rd.id);
+        const team     = koSelections[rd.id][i];
+        const eligible = getEligibleForSlot(rd.id, i).sort();
+
+        let placeholder;
+        if (rd.id === 'r32') {
           const s = R32_SLOTS[i];
-          inner = `<div class="pb-slot pb-empty${locked?' pb-locked':''}" id="pb-m-r32-${i}" ${clickAttr}>
-            <div class="pb-match-hint"><span>${s.t}</span><span class="pb-vs">vs</span><span>${s.b}</span></div>
-          </div>`;
+          placeholder = `${s.t} vs ${s.b}`;
         } else {
-          inner = `<div class="pb-slot pb-empty${locked?' pb-locked':''}" id="pb-m-${rd.id}-${i}" ${clickAttr}>
-            <span class="pb-hint">?</span>
-          </div>`;
+          placeholder = '— pick winner —';
         }
+
+        let opts = `<option value="">${escHtml(placeholder)}</option>`;
+        for (const t of eligible) {
+          opts += `<option value="${escHtml(t)}"${team===t?' selected':''}>${escHtml(t)}</option>`;
+        }
+
+        inner = `<div class="pb-slot${team?'':' pb-empty'}${locked?' pb-locked':''}" id="pb-m-${rd.id}-${i}">
+          <select class="pb-sel"${locked?' disabled':''} onchange="pbSelectTeam('${rd.id}',${i},this.value)">${opts}</select>
+        </div>`;
       }
-      // Cell covers full row height so QF/SF slots are easy to drag onto
-      slots += `<div style="height:${slotH}px;display:flex;align-items:center;padding:0 12px;" ${cellAttrs}>${inner}</div>`;
+      slots += `<div style="height:${slotH}px;display:flex;align-items:center;padding:0 12px;">${inner}</div>`;
     }
     colsHtml += `<div style="display:flex;flex-direction:column;">${slots}</div>`;
   }
 
   const hint = allLocked
     ? `<p style="font-size:11.5px;color:var(--text-3);margin:0 0 8px;">🔒 Bracket picks are locked — the knockout phase has begun.</p>`
-    : `<p style="font-size:11.5px;color:var(--text-3);margin:0 0 8px;">Drag teams into bracket slots — or tap a chip then click a slot. Each slot = predicted match winner. <span style="opacity:.75;">1st/2nd/3rd = group stage finish.</span></p>`;
+    : `<p style="font-size:11.5px;color:var(--text-3);margin:0 0 8px;">Each slot shows only eligible teams based on official bracket seedings. Later rounds narrow automatically once earlier rounds are filled.</p>`;
 
   el.innerHTML = `${hint}
-  <div class="bk-pool">${poolHtml}</div>
-  ${pickerHtml}
   <div class="pb-scroll">
     <div style="display:inline-flex;flex-direction:column;min-width:max-content;">
       <div style="display:flex;">${labelsHtml}</div>
@@ -1470,72 +1467,6 @@ function renderPredBracket() {
   requestAnimationFrame(drawPredBracketLines);
 }
 
-function pbDragStart(event) {
-  dragTeam = event.currentTarget.dataset.team;
-  event.dataTransfer.setData('text/plain', dragTeam);
-  event.dataTransfer.effectAllowed = 'copy';
-}
-
-function pbDrop(event, roundId, slotIdx) {
-  event.preventDefault();
-  document.getElementById(`pb-m-${roundId}-${slotIdx}`)?.classList.remove('pb-over');
-  if (isRoundLocked(roundId)) return;
-  const team = dragTeam || event.dataTransfer.getData('text/plain');
-  dragTeam = null;
-  if (!team) return;
-  const arr = koSelections[roundId];
-  const existingIdx = arr.indexOf(team);
-  if (existingIdx !== -1) arr[existingIdx] = null;
-  arr[slotIdx] = team;
-  renderPredBracket();
-}
-
-function pbRemove(roundId, slotIdx) {
-  if (isRoundLocked(roundId)) return;
-  koSelections[roundId][slotIdx] = null;
-  renderPredBracket();
-}
-
-function pbPoolClick(event) {
-  const team = event.currentTarget.dataset.team;
-  bracketSelectedTeam = (bracketSelectedTeam === team) ? null : team;
-  renderPredBracket();
-}
-
-function pbSlotClick(roundId, slotIdx) {
-  if (bracketSelectedTeam) {
-    if (!isRoundLocked(roundId)) {
-      const arr = koSelections[roundId];
-      const existingIdx = arr.indexOf(bracketSelectedTeam);
-      if (existingIdx !== -1) arr[existingIdx] = null;
-      arr[slotIdx] = bracketSelectedTeam;
-      bracketSelectedTeam = null;
-    }
-    renderPredBracket();
-  } else {
-    const team = koSelections[roundId][slotIdx];
-    if (team) { bracketSelectedTeam = team; renderPredBracket(); }
-  }
-}
-
-function pbPickerAdd(roundId) {
-  if (!bracketSelectedTeam) return;
-  if (isRoundLocked(roundId)) return;
-  const arr = koSelections[roundId];
-  const n   = { r32:16, r16:8, qf:4, sf:2 }[roundId];
-  const existingIdx = arr.indexOf(bracketSelectedTeam);
-  if (existingIdx !== -1) {
-    arr[existingIdx] = null;
-    bracketSelectedTeam = null;
-  } else {
-    const emptyIdx = arr.indexOf(null);
-    if (emptyIdx === -1) { showToast(`All ${n} slots filled for this round`); return; }
-    arr[emptyIdx] = bracketSelectedTeam;
-    bracketSelectedTeam = null;
-  }
-  renderPredBracket();
-}
-
 function fillPredictForm(saved) {
   if(!saved) return;
   if(saved.dark)    { const s=document.getElementById('pred-dark');    if(s) s.value=saved.dark; }
@@ -1543,8 +1474,8 @@ function fillPredictForm(saved) {
   if(saved.goals)   document.getElementById('pred-goals').value  = saved.goals;
   // Restore ko selections then rebuild UI
   for(const [r,n] of [['r32',16],['r16',8],['qf',4],['sf',2]]) {
-    koSelections[r] = Array(n).fill(null);
-    (saved.knockoutPicks?.[r] || []).filter(Boolean).forEach((t,i) => { if(i<n) koSelections[r][i]=t; });
+    const sr = saved.knockoutPicks?.[r] || [];
+    koSelections[r] = Array(n).fill(null).map((_,i) => sr[i] || null);
   }
   buildBracketPicksUI();
   // Set podium selects after UI rebuild
@@ -1615,7 +1546,6 @@ function onNameBlur() {
   const saved = state.predictions.find(p => p.name === name);
   if (saved) {
     if (canEditPrediction(name)) {
-      bracketSelectedTeam = null;
       for(const [r,n] of [['r32',16],['r16',8],['qf',4],['sf',2]]) koSelections[r] = Array(n).fill(null);
       fillPredictForm(saved);
       showToast(`Loaded your existing prediction`);
@@ -1643,7 +1573,7 @@ async function savePrediction() {
 
   const groupPicks    = collectGroupPicks();
   const knockoutPicks = {};
-  for(const r of ['r32','r16','qf','sf']) knockoutPicks[r] = koSelections[r].filter(Boolean);
+  for(const r of ['r32','r16','qf','sf']) knockoutPicks[r] = [...koSelections[r]];
 
   const token = ownToken(name);
   localStorage.setItem('wc2026_myname', name);
@@ -1669,7 +1599,7 @@ function renderMyPick() {
   if(!el) return;
   if(!saved){ el.innerHTML='<span style="color:var(--text-3)">No prediction saved yet.</span>'; return; }
   const gTotal = Object.values(saved.groupPicks||{}).reduce((s,g)=>s+Object.keys(g).length,0);
-  const koTotal= ['r32','r16','qf','sf'].reduce((s,r)=>s+(saved.knockoutPicks?.[r]?.length||0),0);
+  const koTotal= ['r32','r16','qf','sf'].reduce((s,r)=>s+(saved.knockoutPicks?.[r]?.filter(Boolean).length||0),0);
   el.innerHTML=`
     <div style="margin-bottom:8px">
       ${saved.champion?`<span class="pick-tag">🏆 ${escHtml(saved.champion)}</span>`:''}
@@ -1853,7 +1783,7 @@ function renderAdminPredictions(content){
           </div>
           <div style="font-size:11px;color:var(--text-3);margin-top:1px;">
             ${Object.values(p.groupPicks||{}).reduce((s,g)=>s+Object.keys(g).length,0)} group picks ·
-            ${['r32','r16','qf','sf'].reduce((s,r)=>s+(p.knockoutPicks?.[r]?.length||0),0)} KO picks
+            ${['r32','r16','qf','sf'].reduce((s,r)=>s+(p.knockoutPicks?.[r]?.filter(Boolean).length||0),0)} KO picks
           </div>
         </div>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:1.5rem;color:var(--pitch);min-width:36px;text-align:right;">${p.pts||0}</div>
